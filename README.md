@@ -135,16 +135,7 @@ Akışlı ayrıştırıcının özel nesne anahtarı davranışı nedeniyle `__p
 | İkinci geliştirici | Sunucu/veri servisi, kalıcı proje kaydı, tam geometri doğrulama, veri işleme | Yeni servis/adaptör; `src/data/createRepository.ts` üzerinden bağlanır |
 | Ortak | Veri sözleşmeleri, hata biçimi, performans kabul ölçütleri, entegrasyon | `src/domain/contracts.ts`, `docs/INTEGRATION.md` |
 
-Arayüzün çalışması için hazırlanmış yerel veri adaptörü ayrı olarak `src/adapters/local/` içindedir. İkinci geliştiricinin sunucu, kalıcı veritabanı, proje kaydı, sunucuda büyük dosya işleme, yetkilendirme ve topolojik doğrulama bölümleri uygulanmamıştır. Bunlar onun teslimatıdır; `GeoJsonRepository` sözleşmesini sağlayan adaptörü `src/data/createRepository.ts` üzerinden bağlayabilir. Kategori ekranları, harita ve poligon düzenleme Gamze'nin bölümünde kalır.
+Arayüzün çalışması için hazırlanmış yerel veri adaptörü ayrı olarak `src/adapters/local/` içindedir.
 
-Detaylar: [entegrasyon sözleşmesi](docs/INTEGRATION.md), [iş bölümü](docs/WORK_PLAN.md).
 
-## Kaynaklar
 
-- [GeoJSON.io](https://geojson.io/): etkileşim yaklaşımı için referans.
-- [OpenLayers düzenleme örneği](https://openlayers.org/en/latest/examples/modify-features.html).
-- [OpenLayers Modify API](https://openlayers.org/en/latest/apidoc/module-ol_interaction_Modify-Modify.html).
-- [RBush](https://github.com/mourner/rbush): mekânsal indeks.
-- [Streamparser JSON](https://github.com/juanjoDiaz/streamparser-json): parça parça JSON ayrıştırma.
-
-Referans Amplify uygulamasının kaynak kodu bu depoya aktarılmamıştır; bu çalışma sıfırdan hazırlanmış iskelettir.
