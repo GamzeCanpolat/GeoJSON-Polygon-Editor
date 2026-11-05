@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#020617" />
+    <meta name="description" content="GeoJSON dosyalarını haritada açın, poligonları düzenleyin ve çalışmanızı dışa aktarın." />
+    <title>GeoJSON Editor · Harita ve JSON</title>
+    <script>
+      try {
+        const theme = localStorage.getItem('geojson-studio-theme') === 'light' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      } catch { document.documentElement.dataset.theme = 'dark'; }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
