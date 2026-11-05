@@ -137,7 +137,7 @@ Akışlı ayrıştırıcının özel nesne anahtarı davranışı nedeniyle `__p
 
 Arayüzün çalışması için hazırlanmış yerel veri adaptörü ayrı olarak `src/adapters/local/` içindedir. İkinci geliştiricinin sunucu, kalıcı veritabanı, proje kaydı, sunucuda büyük dosya işleme, yetkilendirme ve topolojik doğrulama bölümleri uygulanmamıştır. Bunlar onun teslimatıdır; `GeoJsonRepository` sözleşmesini sağlayan adaptörü `src/data/createRepository.ts` üzerinden bağlayabilir. Kategori ekranları, harita ve poligon düzenleme Gamze'nin bölümünde kalır.
 
-Detaylar: [entegrasyon sözleşmesi](docs/INTEGRATION.md), [iş bölümü](docs/WORK_PLAN.md).
+Detaylar: [entegrasyon sözleşmesi](docs/INTEGRATION.md).
 
 ## Kaynaklar
 
