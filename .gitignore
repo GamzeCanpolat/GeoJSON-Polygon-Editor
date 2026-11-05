@@ -1,0 +1,12 @@
+node_modules/
+.npm-cache/
+dist/
+.vite/
+test-results/
+playwright-report/
+fixtures/generated/
+outputs/
+.env
+.env.*
+!.env.example
+*.local
