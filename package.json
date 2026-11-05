@@ -1,0 +1,38 @@
+{
+  "name": "geojson-polygon-editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "generate:large": "node scripts/generate-large.mjs"
+  },
+  "dependencies": {
+    "@streamparser/json": "^0.0.22",
+    "lucide-react": "^0.468.0",
+    "ol": "^10.7.0",
+    "rbush": "^4.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/rbush": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "fake-indexeddb": "^6.2.0",
+    "jsdom": "^29.1.1",
+    "rollup": "npm:@rollup/wasm-node@^4.67.5",
+    "typescript": "~5.9.3",
+    "vite": "^6.4.1",
+    "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "rollup": "$rollup"
+  }
+}
