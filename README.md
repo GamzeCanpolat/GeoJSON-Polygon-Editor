@@ -126,15 +126,6 @@ En güncel görüntü bölgeye göre değişir; bir sağlayıcıya dünya geneli
 
 Akışlı ayrıştırıcının özel nesne anahtarı davranışı nedeniyle `__proto__` anahtarı içeren dosyalar, sessiz veri kaybı yerine açık hata ile reddedilir.
 
-## İki kişilik geliştirme
-
-| Sorumlu | Alan | Dosyalar |
-| --- | --- | --- |
-| Gamze | Harita, çizim/düzenleme etkileşimleri, paneller, görünür alan performansı | `src/App.tsx`, `src/components/`, `src/map/`, `src/styles.css` |
-| Arayüzü çalıştıran yerel adaptör | Tarayıcıda geçici dosya açma, çalışma verisi ve dışa aktarma | `src/adapters/local/` — sunucu teslimatı değildir |
-| İkinci geliştirici | Sunucu/veri servisi, kalıcı proje kaydı, tam geometri doğrulama, veri işleme | Yeni servis/adaptör; `src/data/createRepository.ts` üzerinden bağlanır |
-| Ortak | Veri sözleşmeleri, hata biçimi, performans kabul ölçütleri, entegrasyon | `src/domain/contracts.ts`, `docs/INTEGRATION.md` |
-
 Arayüzün çalışması için hazırlanmış yerel veri adaptörü ayrı olarak `src/adapters/local/` içindedir.
 
 
