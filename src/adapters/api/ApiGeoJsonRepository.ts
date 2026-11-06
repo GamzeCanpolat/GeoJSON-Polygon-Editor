@@ -1,7 +1,8 @@
 import { JSONParser } from '@streamparser/json';
+import { ApiProjectRepository } from './ApiProjectRepository';
+import type { ProjectRepository, ProjectWorkspace as Workspace } from '../../domain/projects';
 import type { GeoJsonRepository, DatasetSummary, FeatureRecord, FeaturePage, MutationRequest, MutationResult, CategoryGroup, CategoryMutationResult, ViewportRequest, ViewportResult, ImportProgress } from '../../domain/contracts';
 
-interface Workspace { id: string; activeDatasetId: string; generationId: string; dataset: DatasetSummary }
 interface State { expectedDatasetId: string; expectedGenerationId: string; expectedRevision: number }
 interface Job { id: string; status: string; processedBytes: number; totalBytes: number; processedFeatures: number; error: string | null; initialDatasetId: string; initialGenerationId: string; initialRevision: number; activatedAt?: string | null; stagingDatasetId?: string | null }
 export interface ApiRepositoryOptions { baseUrl?: string; fetch?: typeof fetch; pollIntervalMs?: number }
@@ -21,15 +22,32 @@ export class ApiGeoJsonRepository implements GeoJsonRepository {
   private closed = false;
   private readonly lifetime = new AbortController();
   private readonly pins = new Map<string, State>();
+  private workspaceEpoch = 0;
+  readonly projects: ProjectRepository;
   constructor(options: ApiRepositoryOptions = {}) {
     this.base = (options.baseUrl ?? 'http://127.0.0.1:8000/api/v1').replace(/\/$/, '');
     this.transport = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.interval = options.pollIntervalMs ?? 250;
     if (!Number.isFinite(this.interval) || this.interval < 0) throw new Error('Geçersiz job takip aralığı.');
+    this.projects = new ApiProjectRepository(task => this.queue(() => task({
+      current: () => this.workspace ? structuredClone(this.workspace) : null,
+      ready: async () => structuredClone(await this.ready()),
+      json: <T>(path: string, method?: string, body?: unknown) => this.json<T>(path, method, body).then(result => { this.check(); return result; }),
+      remove: async path => { await this.request(path, { method: 'DELETE' }); this.check(); },
+      switchWorkspace: workspace => {
+        this.check(); this.workspace = structuredClone(workspace); this.pins.clear(); this.workspaceEpoch++;
+      },
+      linkProject: id => { this.check(); if (this.workspace) this.workspace.projectId = id; },
+    })));
   }
   private check(signal?: AbortSignal) { if (this.closed || signal?.aborted) throw aborted(); }
   private queue<T>(task: () => Promise<T>): Promise<T> {
-    const operation = this.tail.then(() => { this.check(); return task(); });
+    const epoch = this.workspaceEpoch;
+    const operation = this.tail.then(() => {
+      this.check();
+      if (epoch !== this.workspaceEpoch) throw new Error('Çalışma alanı değişti. Güncel çalışmayı yeniden okuyun.');
+      return task();
+    });
     this.tail = operation.catch(() => {});
     return operation;
   }
