@@ -1,5 +1,9 @@
 # Local / FastAPI çalışma modları — Aşama 7C
 
+Proje yönetimi için artık API moduna ek olarak `VITE_PROJECT_MANAGEMENT=true`
+verilebilir; varsayılan kapalıdır. Bu değişiklik Vite'ın yeniden başlatılmasını
+gerektirir. Güncel ekranlar ve komutlar: [7D-3 rehberi](PROJECT_UI_INTEGRATION.md).
+
 `src/data/createRepository.ts` yalnızca adaptörü seçer. Harita, React bileşenleri,
 OpenLayers, tablo, kategori, Excel dönüşümü, tema ve veri sözleşmesi değiştirilmedi.
 

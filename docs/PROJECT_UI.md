@@ -1,5 +1,8 @@
 # Proje yönetimi arayüzü — Aşama 7D-2
 
+Bu dosya 7D-2 tesliminin tarihsel raporudur. Onay sonrası gerçek App bağlantısı,
+güncel özellik bayrağı ve komutlar: [7D-3 rehberi](PROJECT_UI_INTEGRATION.md).
+
 ## Teslim ve özellik bayrağı
 
 Yeni bileşenler hazırdır; **App.tsx içinde import/mount edilmedi**. Mevcut ekranda

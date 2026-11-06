@@ -9,6 +9,10 @@ import { FeatureList } from './components/FeatureList';
 import { ImportReader } from './data/ImportReader';
 import { BasemapPicker } from './components/BasemapPicker';
 import { createRepository } from './data/createRepository';
+import { ApiGeoJsonRepository } from './adapters/api/ApiGeoJsonRepository';
+import { ProjectManagementFeature } from './components/projects/ProjectManagement';
+import { ProjectNameDialog } from './components/projects/ProjectDialogs';
+import type { Project } from './domain/projects';
 import { useTheme } from './useTheme';
 import type { CategoryGroup, DatasetSummary, FeaturePage, FeatureRecord, GeoFeature, ImportProgress } from './domain/contracts';
 import type { Basemap, EditorMode, MapController } from './map/MapController';
@@ -41,6 +45,9 @@ const modeHints: Record<EditorMode, [string, string]> = {
 export function App() {
   const { theme, toggleTheme } = useTheme();
   const [repository] = useState(createRepository);
+  const projectsEnabled = import.meta.env.VITE_PROJECT_MANAGEMENT === 'true' && repository instanceof ApiGeoJsonRepository;
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const workspaceVersion = useRef(0);
   const startup = useRef<Promise<DatasetSummary> | null>(null);
   const initialized = useRef(false);
   const disposeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -72,6 +79,7 @@ export function App() {
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set());
   const [catalog, setCatalog] = useState<CategoryGroup[]>([]);
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [confirmSaveName, setConfirmSaveName] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const abort = useRef<AbortController | null>(null);
@@ -83,7 +91,10 @@ export function App() {
 
   const notify = (kind: Notice['kind'], message: string) => setNotice({ kind, message });
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 6500); return () => clearTimeout(timer); }, [notice]);
-  const resetState = () => {
+  const resetState = (clearProject = true) => {
+    workspaceVersion.current++; if (clearProject) setActiveProject(null);
+    setPage({items:[],total:0}); setCatalog([]); setViewport({shown:0,matched:0,limited:false});
+    map.current?.abortDrawing(); map.current?.showSelected(null); map.current?.refresh();
     selectionVersion.current++; setSelected(null); setUndoStack([]); setRedoStack([]); setDirty(false);
     setSearch(''); setOffset(0); setMode('select'); setVisible(true); setCodeDirty(false); setWorkspaceKey(value => value + 1); setHiddenIds(new Set());
   };
@@ -104,20 +115,22 @@ export function App() {
   }, [repository]);
   useEffect(() => {
     let active = true;
+    const version = workspaceVersion.current;
     const timer = setTimeout(() => {
       if (!dataset) return;
-      repository.list(search, offset, 50).then((result) => { if (active) setPage(result); }).catch((error: Error) => { if (active) notify('error', error.message); });
+      repository.list(search, offset, 50).then((result) => { if (active && version === workspaceVersion.current) setPage(result); }).catch((error: Error) => { if (active && version === workspaceVersion.current) notify('error', error.message); });
     }, search ? 180 : 0);
     return () => { active = false; clearTimeout(timer); };
   }, [repository, dataset, search, offset]);
   useEffect(() => {
     let active = true;
-    if (dataset) repository.categories().then((result) => { if (active) setCatalog(result); }).catch((error: Error) => { if (active) notify('error', error.message); });
+    const version = workspaceVersion.current;
+    if (dataset) repository.categories().then((result) => { if (active && version === workspaceVersion.current) setCatalog(result); }).catch((error: Error) => { if (active && version === workspaceVersion.current) notify('error', error.message); });
     return () => { active = false; };
   }, [repository, dataset]);
   useEffect(() => { const frame = requestAnimationFrame(() => setArea(map.current?.getSelectedArea() ?? 0)); return () => cancelAnimationFrame(frame); }, [selected]);
   useEffect(() => {
-    const preventLoss = (event: BeforeUnloadEvent) => { if (dirty || codeDirty) { event.preventDefault(); event.returnValue = ''; } };
+    const preventLoss = (event: BeforeUnloadEvent) => { if (dirty || codeDirty || projectsEnabled && map.current?.hasPendingEdits()) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', preventLoss);
     return () => window.removeEventListener('beforeunload', preventLoss);
   }, [dirty, codeDirty]);
@@ -133,7 +146,7 @@ export function App() {
       setSelected(record); if(window.innerWidth >= 900) setRightOpen(true);
       if (record.feature.geometry?.type === 'Polygon' || record.feature.geometry?.type === 'MultiPolygon') setMode('edit');
       if (focus) map.current?.fit(record.summary.bounds);
-    } catch (error) { notify('error', (error as Error).message); }
+    } catch (error) { if (version === selectionVersion.current) notify('error', (error as Error).message); }
   };
   const open = async (file: File, append = false, skippedRows = 0): Promise<boolean> => {
     if (operationLock.current) return false;
@@ -151,14 +164,14 @@ export function App() {
         finally { signal.removeEventListener('abort',cancelMerge);merger.dispose(); }
       }
       const summary = await repository.open(incoming, setProgress, abort.current.signal);
-      resetState(); setDataset(summary); if(append && dataset?.count) setDirty(true);
+      resetState(false); setDataset(summary); if(projectsEnabled || append && dataset?.count) setDirty(true);
       requestAnimationFrame(() => map.current?.fit(summary.bounds));
       notify('success', `${nf.format(summary.count)} şekil açıldı. ${skippedRows?`${nf.format(skippedRows)} boş geometri satırı atlandı.`:summary.count ? 'Çalışmaya hazırsınız.' : 'Dosya boş bir koleksiyon içeriyor.'}`);
       return true;
     } catch (error) { if(abort.current.signal.aborted)notify('info',(error as Error).message); throw error; }
     finally { setBusy(null); setProgress(null); operationLock.current = false; abort.current = null; }
   };
-  const guardReplace = (action: () => void) => { if (busy) return; if (dirty || codeDirty) setConfirmAction(() => action); else action(); };
+  const guardReplace = (action: () => void) => { if (busy) return; if (dirty || codeDirty || projectsEnabled && map.current?.hasPendingEdits()) setConfirmAction(() => action); else action(); };
   const beginImport = () => { if(!busy){setImportFile(null);setImportOpen(true);} };
   const receiveFile = (file: File) => {
     if (busy) return;
@@ -175,6 +188,22 @@ export function App() {
     try { const summary = await repository.createEmpty(); resetState(); setDataset(summary); notify('success', 'Yeni çalışma hazır. Poligon aracıyla çizmeye başlayın.'); }
     catch (error) { notify('error', (error as Error).message); }
     finally { setBusy(null); operationLock.current = false; }
+  };
+  const saveBeforeReplace = async (name?: string) => {
+    if (operationLock.current || !(repository instanceof ApiGeoJsonRepository) || !confirmAction) return;
+    if (codeDirty || map.current?.hasPendingEdits()) { notify('info', 'Önce JSON taslağını veya devam eden çizimi tamamlayın.'); return; }
+    if (!activeProject && name === undefined) { setConfirmSaveName(true); return; }
+    const action = confirmAction;
+    let savedSuccessfully = false;
+    operationLock.current = true; setBusy('edit');
+    try {
+      const saved = activeProject ? await repository.projects.save(activeProject.id, activeProject.version) : await repository.projects.create(name!);
+      setActiveProject(saved); setDirty(false); setConfirmAction(null); setConfirmSaveName(false);
+      notify('success', `“${saved.name}” kaydedildi.`);
+      savedSuccessfully = true;
+    } catch (error) { notify('error', (error as Error).message); }
+    finally { operationLock.current = false; setBusy(null); }
+    if (savedSuccessfully) action();
   };
   const changeMode = (value: EditorMode) => {
     if (busy) return;
@@ -269,7 +298,7 @@ export function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = `${dataset.name.replace(/\.(geojson|json)$/i, '')}-duzenlendi.geojson`;
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-      setDirty(false); notify('success', 'GeoJSON indirme işlemi başlatıldı. Özgün koordinat ayrıntısı korundu.');
+      if (!projectsEnabled) setDirty(false); notify('success', 'GeoJSON indirme işlemi başlatıldı. Özgün koordinat ayrıntısı korundu.');
     } catch (error) { notify('error', (error as Error).message); }
     finally { setBusy(null); setProgress(null); operationLock.current = false; }
   };
@@ -308,6 +337,13 @@ export function App() {
     <header className="topbar">
       <a className="brand" href="#" onClick={(event) => event.preventDefault()} aria-label="GeoJSON Editor"><span className="brand-mark"><FileJson2 size={21} strokeWidth={1.8} /></span><span className="brand-copy"><strong>GeoJSON Editor</strong><span title={dataset?.name}>{dataset?.name ?? 'Çalışma hazırlanıyor…'}</span></span></a>
       <div className="topbar-divider" /><div className="breadcrumb"><strong>{dataset?.name ?? 'Yeni çalışma'}</strong></div>
+      <ProjectManagementFeature repository={repository} dataset={dataset} activeProject={activeProject} dirty={dirty} hasDraft={codeDirty}
+        editorBusy={!!busy || importOpen || categoriesOpen || help || !!confirmAction}
+        hasPendingEdits={()=>map.current?.hasPendingEdits() ?? false}
+        onActiveProjectChange={setActiveProject} onSaved={()=>setDirty(false)}
+        onOpened={result=>{resetState();setDataset(result.workspace.dataset);requestAnimationFrame(()=>{map.current?.fit(result.workspace.dataset.bounds);map.current?.refresh();});}}
+        onDeleted={id=>{if(activeProject?.id===id)setDirty(true);}}
+        onOperationBusyChange={value=>{operationLock.current=value;setBusy(value?'edit':null);}}/>
       <div className="topbar-actions"><button className="icon-button reference-sidebar-toggle" aria-label={leftOpen?'Şekil listesini kapat':'Şekil listesini aç'} onClick={()=>setLeftOpen(value=>!value)}>{leftOpen?<PanelLeftClose size={16}/>:<PanelLeftOpen size={16}/>}</button>
         <button className="help-button" onClick={() => setHelp(true)} title="Kullanım kılavuzu" aria-label="Kullanım kılavuzu"><CircleHelp size={18} /></button>
         <button className="button secondary" aria-label="Yeni dosya" disabled={!!busy} onClick={() => guardReplace(() => void newProject())}><Plus size={15}/><span>Yeni</span></button>
@@ -347,7 +383,8 @@ export function App() {
     {(busy === 'import' || busy === 'export') && <div className="modal-backdrop"><div className="progress-modal" role="dialog" aria-modal="true" aria-labelledby="progress-title"><div className="progress-symbol"><FileJson2 size={31} /><LoaderCircle className="spin" size={20} /></div><span className="eyebrow">{busy === 'import' ? 'DOSYANIZ HAZIRLANIYOR' : 'GEOJSON OLUŞTURULUYOR'}</span><h2 id="progress-title">{busy === 'import' ? 'Yeni alanlar keşfediliyor.' : 'Çalışmanız yola çıkıyor.'}</h2><p>{busy === 'import' ? 'Dosya, haritayı yavaşlatmadan parça parça açılıyor.' : 'Tüm şekiller özgün ayrıntılarıyla dışa aktarılıyor.'}</p><div className="progress-track"><span style={{ width: `${percent}%` }} /></div><div className="progress-details"><strong>%{percent}</strong><span>{nf.format(progress?.featuresRead ?? 0)} şekil {busy === 'import' && progress ? `· ${sizeText(progress.bytesRead)} / ${sizeText(progress.totalBytes)}` : ''}</span></div>{busy === 'import' && <button className="button secondary" onClick={() => abort.current?.abort()}>İptal et</button>}</div></div>}
     {dragging && !busy && <div className="drop-overlay"><Upload size={45} strokeWidth={1.3} /><h2>Dosyanızı buraya bırakın</h2><p>.geojson, .json, .xls veya .xlsx</p></div>}
     {categoriesOpen && <CategoryManager catalog={catalog} busy={!!busy} onAdd={addCategory} onClose={() => setCategoriesOpen(false)} />}
-    {confirmAction && <div className="modal-backdrop"><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="replace-title"><div className="modal-icon"><FolderOpen size={24} /></div><h2 id="replace-title">Mevcut çalışma değiştirilsin mi?</h2><p>Dışa aktarılmamış değişiklikleriniz var. Çalışmayı değiştirmeden önce dosyanızı indirebilirsiniz.</p><div className="confirm-actions"><button className="button secondary" onClick={() => setConfirmAction(null)}>Vazgeç</button><button className="button secondary" onClick={() => { setConfirmAction(null); void exportFile(); }}><ArrowDownToLine size={15} />Önce dışa aktar</button><button className="button primary" onClick={() => { const action = confirmAction; setConfirmAction(null); action(); }}>Değiştir</button></div></div></div>}
+    {confirmAction && !confirmSaveName && <div className="modal-backdrop"><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="replace-title"><div className="modal-icon"><FolderOpen size={24} /></div><h2 id="replace-title">Mevcut çalışma değiştirilsin mi?</h2><p>{projectsEnabled ? 'Kaydedilmemiş değişiklikleriniz var. JSON taslağı veya yarım çizim kaydetmeden devam ederseniz bırakılacak.' : 'Dışa aktarılmamış değişiklikleriniz var. Çalışmayı değiştirmeden önce dosyanızı indirebilirsiniz.'}</p><div className="confirm-actions">{projectsEnabled ? <><button className="button secondary" disabled={!!busy} onClick={()=>setConfirmAction(null)}>İptal</button><button className="button secondary" disabled={!!busy} onClick={()=>{const action=confirmAction;setConfirmAction(null);action();}}>Kaydetmeden Devam Et</button><button className="button primary" disabled={!!busy||codeDirty||!!map.current?.hasPendingEdits()} onClick={()=>void saveBeforeReplace()}>Kaydet</button></> : <><button className="button secondary" onClick={() => setConfirmAction(null)}>Vazgeç</button><button className="button secondary" onClick={() => { setConfirmAction(null); void exportFile(); }}><ArrowDownToLine size={15} />Önce dışa aktar</button><button className="button primary" onClick={() => { const action = confirmAction; setConfirmAction(null); action(); }}>Değiştir</button></>}</div></div></div>}
+    {confirmAction && confirmSaveName && <ProjectNameDialog title="Yeni çalışmaya geçmeden kaydet" busy={!!busy} onClose={()=>setConfirmSaveName(false)} onSubmit={name=>void saveBeforeReplace(name)}/>}
     {help && <div className="modal-backdrop" onClick={() => setHelp(false)}><div className="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={(event) => event.stopPropagation()}><div className="help-heading"><span className="modal-icon"><Pentagon size={25} /></span><button className="icon-button" aria-label="Kılavuzu kapat" onClick={() => setHelp(false)}><X size={20} /></button></div><span className="eyebrow">KÜÇÜK BİR BAŞLANGIÇ KILAVUZU</span><h2 id="help-title">Alanlarınıza şekil verin.</h2><p>Dosyanızı açın veya JSON paneline GeoJSON yapıştırın. Harita, JSON ve Tablo aynı çalışma verisini düzenler.</p><div className="shortcut-grid">{modes.map((tool) => <div key={tool.id}><span>{tool.label}</span><kbd>{tool.key}</kbd></div>)}<div><span>Geri al / yinele</span><kbd>Ctrl Z / Ctrl ⇧ Z</kbd></div><div><span>Dosya aç / dışa aktar</span><kbd>Ctrl O / Ctrl S</kbd></div><div><span>Çizimi tamamla / iptal et</span><kbd>Enter / Esc</kbd></div><div><span>Çizimde son köşeyi kaldır</span><kbd>Backspace</kbd></div></div><div className="help-note"><strong>Büyük dosyalar için</strong><p>100–500 MB dosyalar hedeflenir. Haritada bir seferde en çok 2.500 şekil gösterilir; tüm şekiller dosyada korunur. Ayrıntı için yakınlaşın veya listeden seçim yapın. Tek bir çok ayrıntılı poligonun düzenlenmesi cihaz belleğiyle sınırlıdır.</p><strong>Çalışmanızı saklayın</strong><p>Bu sürüm yerel bir çalışma oturumudur. Kapatmadan önce dışa aktarın. Altlık haritaları için internet gerekir. Geometri yapısı kontrol edilir; kendini kesme gibi topolojik hatalar bu sürümde kontrol edilmez.</p></div></div></div>}
   </div>;
 }

@@ -16,9 +16,9 @@ const settle=()=>act(async()=>{await new Promise(r=>setTimeout(r,0));});
 async function click(text:string){const button=[...host.querySelectorAll('button')].find(b=>b.textContent===text);expect(button,host.textContent??'').toBeDefined();await act(async()=>button!.click());}
 async function name(value:string){const input=host.querySelector('input')!;await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));});}
 function service(){return {list:vi.fn().mockResolvedValue({items:[project],total:1}),get:vi.fn().mockResolvedValue(project),create:vi.fn().mockResolvedValue(project),save:vi.fn().mockResolvedValue({...project,version:2}),rename:vi.fn().mockResolvedValue({...project,name:'Yeni',version:2}),remove:vi.fn().mockResolvedValue(undefined),open:vi.fn().mockResolvedValue({workspace:{id:'w2',projectId:'p',activeDatasetId:'d2',generationId:'g',dataset,createdAt:'today',updatedAt:'today'},previousWorkspace:{id:'w1'}})} satisfies ProjectRepository;}
-async function render(options:{active?:Project|null;dirty?:boolean;draft?:boolean;busy?:boolean}={}){
+async function render(options:{active?:Project|null;dirty?:boolean;draft?:boolean;busy?:boolean;pending?:boolean}={}){
   const projects=service(),saved=vi.fn(),opened=vi.fn(),deleted=vi.fn(),lock=vi.fn();
-  function Harness(){const [active,setActive]=useState<Project|null>(options.active??null);return <ProjectManagement projects={projects} dataset={dataset} activeProject={active} dirty={options.dirty??false} hasDraft={options.draft??false} editorBusy={options.busy??false} onActiveProjectChange={setActive} onSaved={saved} onOpened={opened} onDeleted={deleted} onOperationBusyChange={lock}/>;}
+  function Harness(){const [active,setActive]=useState<Project|null>(options.active??null);return <ProjectManagement projects={projects} dataset={dataset} activeProject={active} dirty={options.dirty??false} hasDraft={options.draft??false} editorBusy={options.busy??false} hasPendingEdits={()=>options.pending??false} onActiveProjectChange={setActive} onSaved={saved} onOpened={opened} onDeleted={deleted} onOperationBusyChange={lock}/>;}
   await act(async()=>root.render(<Harness/>));return {projects,saved,opened,deleted,lock};
 }
 describe('project management UI',()=>{
@@ -51,10 +51,24 @@ describe('project management UI',()=>{
   });
   it('requires confirmation for dirty open and invokes the editor reset only on success',async()=>{
     const s=await render({dirty:true});await click('Projelerim');await click('Aç');expect(s.projects.open).not.toHaveBeenCalled();expect(host.textContent).toContain('Kaydedilmemiş değişiklikler');
-    await click('Vazgeç');expect(s.opened).not.toHaveBeenCalled();await click('Aç');await click('Yeni workspace içinde aç');expect(s.projects.open).toHaveBeenCalledWith('p',1);expect(s.opened).toHaveBeenCalledOnce();expect(s.lock.mock.calls).toContainEqual([true]);expect(s.lock.mock.calls.at(-1)).toEqual([false]);
+    await click('İptal');expect(s.opened).not.toHaveBeenCalled();await click('Aç');await click('Kaydetmeden Devam Et');expect(s.projects.open).toHaveBeenCalledWith('p',1);expect(s.opened).toHaveBeenCalledOnce();expect(s.lock.mock.calls).toContainEqual([true]);expect(s.lock.mock.calls.at(-1)).toEqual([false]);
   });
   it('shows 409 and preserves current editor state after failed open',async()=>{
     const s=await render();s.projects.open.mockRejectedValue({status:409,message:'Proje sürümü değişti'});await click('Projelerim');await click('Aç');expect(host.querySelector('[role=alert]')?.textContent).toContain('Sürüm çakışması');expect(s.opened).not.toHaveBeenCalled();expect(s.saved).not.toHaveBeenCalled();
+  });
+  it('saves before reopening the same project using the returned new version',async()=>{
+    const s=await render({dirty:true,active:project});await click('Projelerim');await click('Aç');await click('Kaydet');
+    expect(s.projects.save).toHaveBeenCalledWith('p',1);expect(s.projects.open).toHaveBeenCalledWith('p',2);expect(s.saved).toHaveBeenCalledOnce();expect(s.opened).toHaveBeenCalledOnce();
+  });
+  it('asks a name for the unsaved current workspace before save-and-open',async()=>{
+    const s=await render({dirty:true});s.projects.create.mockResolvedValue({...project,id:'new'});await click('Projelerim');await click('Aç');await click('Kaydet');
+    expect(s.projects.open).not.toHaveBeenCalled();await name('Current work');await click('Onayla');expect(s.projects.create).toHaveBeenCalledWith('Current work');expect(s.projects.open).toHaveBeenCalledWith('p',1);
+  });
+  it('does not pretend an unapplied JSON draft is included in a project save',async()=>{
+    const s=await render({draft:true});await click('Projelerim');await click('Aç');await click('Kaydet');expect(s.projects.save).not.toHaveBeenCalled();expect(s.projects.create).not.toHaveBeenCalled();await click('İptal');expect(s.projects.open).not.toHaveBeenCalled();
+  });
+  it('does not deactivate a pending sketch by starting a background project request',async()=>{
+    const s=await render({pending:true});await click('Projeyi Kaydet');await click('Projelerim');expect(s.projects.list).not.toHaveBeenCalled();expect(s.lock).not.toHaveBeenCalled();expect(host.querySelector('[role=alert]')?.textContent).toContain('Devam eden çizimi');
   });
   it('never deletes without explicit confirmation and cancel does nothing',async()=>{
     const s=await render({active:project});await click('Projelerim');await click('Sil');expect(s.projects.remove).not.toHaveBeenCalled();await click('Vazgeç');expect(s.projects.remove).not.toHaveBeenCalled();await click('Sil');await click('Silmeyi onayla');expect(s.projects.remove).toHaveBeenCalledWith('p',1);expect(s.deleted).toHaveBeenCalledWith('p');expect(s.opened).not.toHaveBeenCalled();

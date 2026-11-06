@@ -37,6 +37,14 @@ export function ProjectConfirmDialog({title,message,action,busy,onClose,onConfir
   </div></ProjectDialog>;
 }
 
+export function ProjectUnsavedDialog({busy,hasDraft,onCancel,onDiscard,onSave}:{busy:boolean;hasDraft:boolean;onCancel():void;onDiscard():void;onSave():void}) {
+  return <ProjectDialog title="Kaydedilmemiş değişiklikler" busy={busy} onClose={onCancel}>
+    <p>Çalışmanızı kaydetmek ister misiniz? Önceki workspace sunucuda korunur; uygulanmamış JSON taslağı devam ederseniz bırakılır.</p>
+    {hasDraft&&<p>Kaydetmek için önce JSON taslağını uygulayın veya iptal edin.</p>}
+    <div className="project-actions"><button className="button secondary" disabled={busy} onClick={onCancel}>İptal</button><button className="button secondary" disabled={busy} onClick={onDiscard}>Kaydetmeden Devam Et</button><button className="button primary" disabled={busy||hasDraft} onClick={onSave}>Kaydet</button></div>
+  </ProjectDialog>;
+}
+
 export function ProjectListDialog({page,search,offset,busy,onSearch,onPage,onOpen,onRename,onDelete,onClose}:{
   page:ProjectPage;search:string;offset:number;busy:boolean;onSearch(value:string):void;onPage(offset:number):void;
   onOpen(project:ProjectSummary):void;onRename(project:ProjectSummary):void;onDelete(project:ProjectSummary):void;onClose():void;

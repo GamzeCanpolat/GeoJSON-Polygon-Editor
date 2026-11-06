@@ -8,3 +8,9 @@
 .project-list small{display:block;color:var(--muted);margin-top:6px}.project-management [role=status]{color:var(--accent-text,var(--green))}
 .project-management>[role=alert],.project-management>[role=status]{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:1601;max-width:min(620px,90vw);padding:12px 18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
 .project-list strong{overflow-wrap:anywhere}
+.topbar>.project-management{display:flex;align-items:center;gap:10px;min-width:0;flex-shrink:0}
+.topbar>.project-management>span{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-mobile-menu{display:none;position:relative}.project-mobile-menu summary{cursor:pointer;padding:8px 12px;border:1px solid var(--line);border-radius:8px;list-style:none}
+.project-mobile-menu>div{position:absolute;top:100%;right:0;min-width:190px;padding:12px;z-index:1000;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+@media(max-width:1200px){.topbar>.project-management>.project-toolbar-actions{display:none}.project-mobile-menu{display:block}.topbar>.project-management>span{display:none}}
+@media(max-width:680px){.topbar>.project-management{margin-left:auto}.project-mobile-menu summary{font-size:11px;padding:7px}.project-dialog{padding:16px}.project-dialog header{gap:8px}}
