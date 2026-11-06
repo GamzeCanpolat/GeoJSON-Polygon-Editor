@@ -13,6 +13,7 @@ export interface ProjectManagementProps {
   hasDraft: boolean;
   editorBusy: boolean;
   hasPendingEdits?(): boolean;
+  beforeOperation?(saving: boolean): Promise<void>;
   onActiveProjectChange(project: Project | null): void;
   onSaved(project: Project): void;
   /** Synchronous editor reset: selection/history/JSON/table/category/map state. */
@@ -29,27 +30,27 @@ export function ProjectManagementFeature(props: ProjectManagementProps) {
 }
 
 type Dialog = {kind:'save';afterOpen?:ProjectSummary}|{kind:'list'}|{kind:'rename'|'delete'|'open';project:ProjectSummary}|null;
-export function ProjectManagement({projects,dataset,activeProject,dirty,hasDraft,editorBusy,hasPendingEdits,onActiveProjectChange,onSaved,onOpened,onDeleted,onOperationBusyChange}:Omit<ProjectManagementProps,'repository'>&{projects:ProjectRepository}) {
+export function ProjectManagement({projects,dataset,activeProject,dirty,hasDraft,editorBusy,hasPendingEdits,beforeOperation,onActiveProjectChange,onSaved,onOpened,onDeleted,onOperationBusyChange}:Omit<ProjectManagementProps,'repository'>&{projects:ProjectRepository}) {
   const [dialog,setDialog]=useState<Dialog>(null),[busy,setBusy]=useState(false),lock=useRef(false);
   const [page,setPage]=useState<ProjectPage>({items:[],total:0}),[search,setSearch]=useState(''),[offset,setOffset]=useState(0);
   const [error,setError]=useState(''),[notice,setNotice]=useState('');
   const disabled=busy||editorBusy;
   function settled(){if(hasPendingEdits?.()){setError('Devam eden çizimi veya düzenlemeyi önce tamamlayın ya da Escape ile iptal edin.');return false;}return true;}
-  async function execute(action:()=>Promise<void>){
+  async function execute(action:()=>Promise<void>,saving=false){
     if(lock.current||editorBusy||!settled())return;
-    lock.current=true;setBusy(true);setError('');setNotice('');onOperationBusyChange(true);
-    try{await action();}
+    lock.current=true;setBusy(true);setError('');setNotice('');let acquired=false;
+    try{await beforeOperation?.(saving);if(!settled())return;onOperationBusyChange(true);acquired=true;await action();}
     catch(cause){const status=(cause as {status?:number}).status;setError((status===409?'Sürüm çakışması. Proje listesini yenileyin; işlem tekrar gönderilmedi. ':'')+(cause instanceof Error?cause.message:'Proje işlemi tamamlanamadı.'));}
-    finally{lock.current=false;setBusy(false);onOperationBusyChange(false);}
+    finally{lock.current=false;setBusy(false);if(acquired)onOperationBusyChange(false);}
   }
   function load(term=search,start=offset){void execute(async()=>{const result=await projects.list(term,start,20);setPage(result);setSearch(term);setOffset(start);});}
   function list(){if(!settled())return;setDialog({kind:'list'});load(search,0);}
-  function create(name:string,afterOpen?:ProjectSummary){void execute(async()=>{const saved=await projects.create(name);onActiveProjectChange(saved);onSaved(saved);setDialog(null);setNotice(`“${saved.name}” kaydedildi. Sürüm ${saved.version}.`);if(afterOpen)await openNow(afterOpen);});}
+  function create(name:string,afterOpen?:ProjectSummary){void execute(async()=>{const saved=await projects.create(name);onActiveProjectChange(saved);onSaved(saved);setDialog(null);setNotice(`“${saved.name}” kaydedildi. Sürüm ${saved.version}.`);if(afterOpen)await openNow(afterOpen);},true);}
   function save(){
     if(!settled())return;
     if(!activeProject){setDialog({kind:'save'});return;}
     const target=activeProject;
-    void execute(async()=>{const saved=await projects.save(target.id,target.version);onActiveProjectChange(saved);onSaved(saved);setNotice(`“${saved.name}” kaydedildi. Sürüm ${saved.version}.`);});
+    void execute(async()=>{const saved=await projects.save(target.id,target.version);onActiveProjectChange(saved);onSaved(saved);setNotice(`“${saved.name}” kaydedildi. Sürüm ${saved.version}.`);},true);
   }
   async function openNow(project:ProjectSummary){
       const result=await projects.open(project.id,project.version);
@@ -61,7 +62,7 @@ export function ProjectManagement({projects,dataset,activeProject,dirty,hasDraft
   function saveAndOpen(target:ProjectSummary){
     if(!activeProject){setDialog({kind:'save',afterOpen:target});return;}
     const current=activeProject;
-    void execute(async()=>{const saved=await projects.save(current.id,current.version);onActiveProjectChange(saved);onSaved(saved);await openNow(saved.id===target.id?saved:target);});
+    void execute(async()=>{const saved=await projects.save(current.id,current.version);onActiveProjectChange(saved);onSaved(saved);await openNow(saved.id===target.id?saved:target);},true);
   }
   function rename(project:ProjectSummary,name:string){void execute(async()=>{
     const result=await projects.rename(project.id,name,project.version);

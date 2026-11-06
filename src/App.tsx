@@ -9,6 +9,7 @@ import { FeatureList } from './components/FeatureList';
 import { ImportReader } from './data/ImportReader';
 import { BasemapPicker } from './components/BasemapPicker';
 import { createRepository } from './data/createRepository';
+import { PendingEditorEdits } from './data/PendingEditorEdits';
 import { ApiGeoJsonRepository } from './adapters/api/ApiGeoJsonRepository';
 import { ProjectManagementFeature } from './components/projects/ProjectManagement';
 import { ProjectNameDialog } from './components/projects/ProjectDialogs';
@@ -65,6 +66,9 @@ export function App() {
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [dirty, setDirty] = useState(false);
   const [codeDirty, setCodeDirty] = useState(false);
+  const codeDirtyRef=useRef(false);
+  const [tableDirty,setTableDirty]=useState(false);
+  const [tableEdits]=useState(()=>new PendingEditorEdits(setTableDirty));
   const [workspaceKey, setWorkspaceKey] = useState(0);
   const [search, setSearch] = useState('');
   const [offset, setOffset] = useState(0);
@@ -96,6 +100,7 @@ export function App() {
     setPage({items:[],total:0}); setCatalog([]); setViewport({shown:0,matched:0,limited:false});
     map.current?.abortDrawing(); map.current?.showSelected(null); map.current?.refresh();
     selectionVersion.current++; setSelected(null); setUndoStack([]); setRedoStack([]); setDirty(false);
+    codeDirtyRef.current=false;
     setSearch(''); setOffset(0); setMode('select'); setVisible(true); setCodeDirty(false); setWorkspaceKey(value => value + 1); setHiddenIds(new Set());
   };
   useEffect(() => {
@@ -130,7 +135,7 @@ export function App() {
   }, [repository, dataset]);
   useEffect(() => { const frame = requestAnimationFrame(() => setArea(map.current?.getSelectedArea() ?? 0)); return () => cancelAnimationFrame(frame); }, [selected]);
   useEffect(() => {
-    const preventLoss = (event: BeforeUnloadEvent) => { if (dirty || codeDirty || projectsEnabled && map.current?.hasPendingEdits()) { event.preventDefault(); event.returnValue = ''; } };
+    const preventLoss = (event: BeforeUnloadEvent) => { if (dirty || codeDirty || tableEdits.hasChanges() || projectsEnabled && map.current?.hasPendingEdits()) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', preventLoss);
     return () => window.removeEventListener('beforeunload', preventLoss);
   }, [dirty, codeDirty]);
@@ -171,7 +176,7 @@ export function App() {
     } catch (error) { if(abort.current.signal.aborted)notify('info',(error as Error).message); throw error; }
     finally { setBusy(null); setProgress(null); operationLock.current = false; abort.current = null; }
   };
-  const guardReplace = (action: () => void) => { if (busy) return; if (dirty || codeDirty || projectsEnabled && map.current?.hasPendingEdits()) setConfirmAction(() => action); else action(); };
+  const guardReplace = (action: () => void) => { if (busy) return; if (dirty || codeDirty || tableEdits.hasChanges() || projectsEnabled && map.current?.hasPendingEdits()) setConfirmAction(() => action); else action(); };
   const beginImport = () => { if(!busy){setImportFile(null);setImportOpen(true);} };
   const receiveFile = (file: File) => {
     if (busy) return;
@@ -195,6 +200,9 @@ export function App() {
     if (!activeProject && name === undefined) { setConfirmSaveName(true); return; }
     const action = confirmAction;
     let savedSuccessfully = false;
+    try { await tableEdits.flush(); } catch(error) { notify('error',(error as Error).message);return; }
+    if(operationLock.current)return;
+    if(codeDirtyRef.current||map.current?.hasPendingEdits()){notify('info','Önce JSON taslağını veya devam eden çizimi tamamlayın.');return;}
     operationLock.current = true; setBusy('edit');
     try {
       const saved = activeProject ? await repository.projects.save(activeProject.id, activeProject.version) : await repository.projects.create(name!);
@@ -245,6 +253,7 @@ export function App() {
     } finally { setBusy(null); operationLock.current = false; }
   };
   const replaceFromCode = async (text: string): Promise<boolean> => {
+    if(tableEdits.hasChanges()){notify('info','Önce tablo hücrelerini uygulayın veya iptal edin.');return false;}
     if (operationLock.current || isLargeDocument(dataset)) return false;
     operationLock.current = true; setBusy('edit'); selectionVersion.current++;
     try {
@@ -267,6 +276,7 @@ export function App() {
     finally { setBusy(null); operationLock.current = false; }
   };
   const historyStep = async (direction: 'undo' | 'redo') => {
+    if(tableEdits.hasChanges()){notify('info','Önce tablo hücrelerini uygulayın veya iptal edin.');return;}
     const stack = direction === 'undo' ? undoStack : redoStack;
     const entry = stack.at(-1); if (!entry || operationLock.current || codeDirty) return;
     operationLock.current = true; setBusy('edit'); selectionVersion.current++;
@@ -327,7 +337,7 @@ export function App() {
     return () => document.removeEventListener('keydown', keydown);
   });
 
-  const status = codeDirty ? 'JSON taslağı henüz uygulanmadı' : busy === 'edit' ? 'Değişiklik işleniyor…' : dirty ? 'Dışa aktarılmamış değişiklikler' : 'Çalışma alanı hazır';
+  const status = tableDirty ? 'Uygulanmamış tablo değişiklikleri var' : codeDirty ? 'JSON taslağı henüz uygulanmadı' : busy === 'edit' ? 'Değişiklik işleniyor…' : dirty ? 'Dışa aktarılmamış değişiklikler' : 'Çalışma alanı hazır';
   const percent = progress?.totalBytes ? Math.round(progress.bytesRead / progress.totalBytes * 100) : 0;
   return <div className={`app geojson-workspace ${!leftOpen ? 'left-collapsed' : ''} ${!rightOpen ? 'right-collapsed' : ''}`}
     onDragEnter={(event) => { if (categoriesOpen || importOpen || !event.dataTransfer.types.includes('Files')) return; event.preventDefault(); dragDepth.current++; setDragging(true); }}
@@ -337,9 +347,10 @@ export function App() {
     <header className="topbar">
       <a className="brand" href="#" onClick={(event) => event.preventDefault()} aria-label="GeoJSON Editor"><span className="brand-mark"><FileJson2 size={21} strokeWidth={1.8} /></span><span className="brand-copy"><strong>GeoJSON Editor</strong><span title={dataset?.name}>{dataset?.name ?? 'Çalışma hazırlanıyor…'}</span></span></a>
       <div className="topbar-divider" /><div className="breadcrumb"><strong>{dataset?.name ?? 'Yeni çalışma'}</strong></div>
-      <ProjectManagementFeature repository={repository} dataset={dataset} activeProject={activeProject} dirty={dirty} hasDraft={codeDirty}
+      <ProjectManagementFeature repository={repository} dataset={dataset} activeProject={activeProject} dirty={dirty||tableDirty} hasDraft={codeDirty}
         editorBusy={!!busy || importOpen || categoriesOpen || help || !!confirmAction}
         hasPendingEdits={()=>map.current?.hasPendingEdits() ?? false}
+        beforeOperation={async saving=>{await tableEdits.flush();if(saving&&codeDirtyRef.current)throw new Error('Önce JSON taslağını uygulayın veya iptal edin.');}}
         onActiveProjectChange={setActiveProject} onSaved={()=>setDirty(false)}
         onOpened={result=>{resetState();setDataset(result.workspace.dataset);requestAnimationFrame(()=>{map.current?.fit(result.workspace.dataset.bounds);map.current?.refresh();});}}
         onDeleted={id=>{if(activeProject?.id===id)setDirty(true);}}
@@ -351,7 +362,7 @@ export function App() {
       </div>
       <input ref={fileInput} className="sr-only" type="file" accept=".geojson,.json,.xls,.xlsx,application/geo+json,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Harita dosyası seç" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) receiveFile(file); }} />
     </header>
-    <div className="workspace-toolbar"><div className="workspace-title"><button className="icon-button" title={leftOpen ? 'Sol paneli kapat' : 'Sol paneli aç'} aria-label={leftOpen ? 'Sol paneli kapat' : 'Sol paneli aç'} onClick={() => setLeftOpen(!leftOpen)}>{leftOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}</button><span>Şekiller</span></div><div className="drawing-toolbar" role="toolbar" aria-label="Harita araçları">{modes.map(({ id, icon: Icon, label, key }) => <button key={id} className={`draw-tool ${mode === id ? 'active' : ''}`} title={`${label} (${key})`} aria-label={label} data-tool={id} aria-pressed={mode === id} disabled={!!busy} onClick={() => changeMode(id)}><Icon size={20} strokeWidth={1.65} /><span className="tool-tooltip">{label}<kbd>{key}</kbd></span></button>)}<span className="toolbar-rule" /><button className={`draw-tool ${snap ? 'toggled' : ''}`} title="Köşelere yakala (görünür şekiller)" aria-label="Köşelere yakala" aria-pressed={snap} disabled={!!busy} onClick={() => setSnap(!snap)}><Magnet size={19} strokeWidth={1.65} /></button><button className="draw-tool delete-tool" title="Seçili şekli sil (Delete)" aria-label="Seçili şekli sil" disabled={!selected || !!busy} onClick={() => void commit(null)}><Trash2 size={18} strokeWidth={1.65} /></button></div><div className="reference-file-actions"><button className="button secondary" aria-label="İçe aktar" disabled={!!busy} onClick={beginImport}><Upload size={14}/><span>İçe aktar</span></button><button className="button secondary" aria-label="Dışa aktar" disabled={!!busy || !dataset || codeDirty || !dataset.count && !catalog.length} onClick={()=>void exportFile()}><Download size={14}/><span>Dışa aktar</span></button></div><div className="history-tools"><button className="icon-button" disabled={!undoStack.length || !!busy || codeDirty} title="Geri al (Ctrl+Z)" aria-label="Geri al" onClick={() => void historyStep('undo')}><Undo2 size={16} /></button><button className="icon-button" disabled={!redoStack.length || !!busy || codeDirty} title="Yinele (Ctrl+Shift+Z)" aria-label="Yinele" onClick={() => void historyStep('redo')}><Redo2 size={16} /></button><span className="tool-divider" /><button className="icon-button" title={rightOpen ? 'Veri panelini kapat' : 'Veri panelini aç'} aria-label={rightOpen ? 'Veri panelini kapat' : 'Veri panelini aç'} onClick={() => { if (rightOpen && codeDirty) notify('info','JSON taslağını uygulayın veya güncel veriyi yeniden yükleyin.'); else setRightOpen(!rightOpen); }}>{rightOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}</button></div></div>
+    <div className="workspace-toolbar"><div className="workspace-title"><button className="icon-button" title={leftOpen ? 'Sol paneli kapat' : 'Sol paneli aç'} aria-label={leftOpen ? 'Sol paneli kapat' : 'Sol paneli aç'} onClick={() => setLeftOpen(!leftOpen)}>{leftOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}</button><span>Şekiller</span></div><div className="drawing-toolbar" role="toolbar" aria-label="Harita araçları">{modes.map(({ id, icon: Icon, label, key }) => <button key={id} className={`draw-tool ${mode === id ? 'active' : ''}`} title={`${label} (${key})`} aria-label={label} data-tool={id} aria-pressed={mode === id} disabled={!!busy} onClick={() => changeMode(id)}><Icon size={20} strokeWidth={1.65} /><span className="tool-tooltip">{label}<kbd>{key}</kbd></span></button>)}<span className="toolbar-rule" /><button className={`draw-tool ${snap ? 'toggled' : ''}`} title="Köşelere yakala (görünür şekiller)" aria-label="Köşelere yakala" aria-pressed={snap} disabled={!!busy} onClick={() => setSnap(!snap)}><Magnet size={19} strokeWidth={1.65} /></button><button className="draw-tool delete-tool" title="Seçili şekli sil (Delete)" aria-label="Seçili şekli sil" disabled={!selected || !!busy} onClick={() => void commit(null)}><Trash2 size={18} strokeWidth={1.65} /></button></div><div className="reference-file-actions"><button className="button secondary" aria-label="İçe aktar" disabled={!!busy} onClick={beginImport}><Upload size={14}/><span>İçe aktar</span></button><button className="button secondary" aria-label="Dışa aktar" disabled={!!busy || !dataset || codeDirty || !dataset.count && !catalog.length} onClick={()=>void exportFile()}><Download size={14}/><span>Dışa aktar</span></button></div><div className="history-tools"><button className="icon-button" disabled={!undoStack.length || !!busy || codeDirty} title="Geri al (Ctrl+Z)" aria-label="Geri al" onClick={() => void historyStep('undo')}><Undo2 size={16} /></button><button className="icon-button" disabled={!redoStack.length || !!busy || codeDirty} title="Yinele (Ctrl+Shift+Z)" aria-label="Yinele" onClick={() => void historyStep('redo')}><Redo2 size={16} /></button><span className="tool-divider" /><button className="icon-button" title={rightOpen ? 'Veri panelini kapat' : 'Veri panelini aç'} aria-label={rightOpen ? 'Veri panelini kapat' : 'Veri panelini aç'} onClick={() => { if (rightOpen && (codeDirty || tableEdits.hasChanges())) notify('info','JSON taslağını uygulayın veya güncel veriyi yeniden yükleyin.'); else setRightOpen(!rightOpen); }}>{rightOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}</button></div></div>
     <main className="workspace">
       {leftOpen && <aside className="sidebar reference-sidebar" aria-label="Şekiller">
         <FeatureList key={workspaceKey} repository={repository} page={page} selected={selected} busy={!!busy} hidden={hiddenIds} search={search}
@@ -371,10 +382,10 @@ export function App() {
         {viewport.limited && <div className="performance-banner" role="status"><Layers3 size={15} /><span>Bu alandaki {nf.format(viewport.matched)} şeklin {nf.format(viewport.shown)} tanesi gösteriliyor. Ayrıntı için yakınlaşın.</span></div>}
         {busy === 'init' && <div className="map-loading"><LoaderCircle className="spin" size={23} /><span>Çalışma alanı hazırlanıyor…</span></div>}
       </section>
-      {rightOpen && <DataPanel repository={repository} dataset={dataset} record={selected} busy={!!busy} area={area} catalog={catalog} workspaceKey={workspaceKey}
-        onReplace={replaceFromCode} onApply={(feature) => commit(feature)} onTableApply={(record,feature) => commit(feature,false,record)} onSelect={(id) => void select(id,true)} onDraftChange={setCodeDirty}
+      {rightOpen && <DataPanel edits={tableEdits} repository={repository} dataset={dataset} record={selected} busy={!!busy} area={area} catalog={catalog} workspaceKey={workspaceKey}
+        onReplace={replaceFromCode} onApply={(feature) => commit(feature)} onTableApply={(record,feature) => commit(feature,false,record)} onSelect={(id) => void select(id,true)} onDraftChange={value=>{codeDirtyRef.current=value;setCodeDirty(value);}}
         onManageCategories={() => setCategoriesOpen(true)} onFocus={() => map.current?.fit(selected?.summary.bounds ?? null)} onEdit={() => changeMode('edit')}
-        onClose={() => { if(codeDirty) notify('info','JSON taslağını uygulayın veya güncel veriyi yeniden yükleyin.'); else setRightOpen(false); }} />}
+        onClose={() => { if(codeDirty||tableEdits.hasChanges()) notify('info','JSON/tablo taslağını uygulayın veya iptal edin.'); else setRightOpen(false); }} />}
 
     </main>
     <footer className="statusbar"><div><span className={`status-dot ${dirty ? 'unsaved' : ''}`} /><span>{status}</span></div><div className="footer-coordinates"><Crosshair size={12} />{coordinate}</div><div><span>{nf.format(viewport.shown)} görünür</span><span className="footer-divider" /><span>WGS 84</span><span className="footer-divider" /><span>GeoJSON</span></div></footer>

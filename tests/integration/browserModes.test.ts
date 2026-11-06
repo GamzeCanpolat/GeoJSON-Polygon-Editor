@@ -23,22 +23,24 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite UI draws to SQLite; browse
     execFileSync(python,['-m','alembic','upgrade','head'],{cwd:backend,env,stdio:'pipe'});
     launch(python,['-m','uvicorn','app.main:app','--host','127.0.0.1','--port',String(apiPort)],backend);
     launch(python,['-m','app.workers.import_worker','--poll-interval','0.05'],backend);
-    launch(process.execPath,[resolve('node_modules/vite/bin/vite.js'),'--host','127.0.0.1','--port',String(vitePort)],resolve('.'),{...env,VITE_PROJECT_MANAGEMENT:'false',VITE_DATA_SOURCE:'api',VITE_API_BASE_URL:`http://127.0.0.1:${apiPort}`});
+    launch(process.execPath,[resolve('node_modules/vite/bin/vite.js'),'--config',resolve('tests/fixtures/project-management.vite.config.ts'),'--host','127.0.0.1','--port',String(vitePort)],resolve('.'),{...env,PROJECT_UI_CACHE_DIR:join(temporary,'api-vite-cache'),VITE_PROJECT_MANAGEMENT:'false',VITE_DATA_SOURCE:'api',VITE_API_BASE_URL:`http://127.0.0.1:${apiPort}`});
     await wait(async()=> (await fetch(`http://127.0.0.1:${apiPort}/api/v1/health`)).ok);
     await wait(async()=> (await fetch(`http://127.0.0.1:${vitePort}`)).ok);
     launch('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--no-first-run','--no-default-browser-check','--disable-background-networking',`--user-data-dir=${join(temporary,'chrome')}`,`--remote-debugging-port=${debugPort}`,'--window-size=1400,1000','about:blank'],resolve('.'));
     let target:{webSocketDebuggerUrl:string}|undefined;
     await wait(async()=>{target=(await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find((t:{type:string})=>t.type==='page');return !!target;});
     socket=new WebSocket(target!.webSocketDebuggerUrl);await once(socket,'open');let id=0;
+    const navigationLog:string[]=[];
+    socket.addEventListener('message',event=>{const e=JSON.parse(String(event.data));if(['Page.frameNavigated','Page.frameStartedLoading','Page.frameRequestedNavigation','Runtime.executionContextsCleared'].includes(e.method)){navigationLog.push(JSON.stringify(e));if(navigationLog.length>8)navigationLog.shift();}});
     const pending=new Map<number,{resolve:(v:any)=>void;reject:(e:Error)=>void}>();
-    socket.addEventListener('message',event=>{const value=JSON.parse(String(event.data));const p=pending.get(value.id);if(p){pending.delete(value.id);if(value.error)p.reject(new Error(JSON.stringify(value.error)));else p.resolve(value.result);}});
+    socket.addEventListener('message',event=>{const value=JSON.parse(String(event.data));const p=pending.get(value.id);if(p){pending.delete(value.id);if(value.error)p.reject(new Error(JSON.stringify(value.error)+' navigation='+navigationLog.join(' | ')));else p.resolve(value.result);}});
     const call=(method:string,params:object={})=>new Promise<any>((resolveCall,reject)=>{const n=++id;const timer=setTimeout(()=>{pending.delete(n);reject(new Error('CDP timeout '+method+' '+JSON.stringify(params).slice(0,140)+' LOGS '+logs.slice(-5000)));},20000);pending.set(n,{resolve:v=>{clearTimeout(timer);resolveCall(v);},reject:e=>{clearTimeout(timer);reject(e);}});socket!.send(JSON.stringify({id:n,method,params}));});
-    const evaluate=async(expression:string)=>{const result=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(result.exceptionDetails)throw new Error(JSON.stringify(result.exceptionDetails));return result.result.value;};
-    await call('Page.enable');
+    const evaluate=async(expression:string)=>{try{const result=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(result.exceptionDetails)throw new Error(JSON.stringify(result.exceptionDetails));return result.result.value;}catch(error){throw new Error(String(error)+' expression='+expression.slice(0,240)+' VITE/API LOGS='+logs.slice(-4500));}};
+    await call('Page.enable');await call('Runtime.enable');
     socket.addEventListener('message',event=>{if(JSON.parse(String(event.data)).method==='Page.javascriptDialogOpening')void call('Page.handleJavaScriptDialog',{accept:true});});
     await call('Page.navigate',{url:`http://127.0.0.1:${vitePort}`});
     const count=(table:string)=>Number(execFileSync(python,['-c',`import sqlite3; print(sqlite3.connect(${JSON.stringify(database)}).execute('SELECT count(*) FROM ${table}').fetchone()[0])`],{env,cwd:backend,encoding:'utf8'}).trim());
-    await wait(async()=>count('workspaces')===1 && await evaluate(`!!document.querySelector('.ol-viewport') && !document.querySelector('.map-loading')`));
+    await wait(async()=>count('workspaces')===1 && await evaluate(`document.readyState==='complete' && !!document.querySelector('.ol-viewport') && !document.querySelector('.map-loading')`));
     await evaluate(`[...document.querySelectorAll('button')].find(b=>b.title.includes('Poligon çiz')||b.getAttribute('aria-label')?.includes('Poligon çiz')).click()`);
     expect(await evaluate(`document.querySelector('.project-management')===null`)).toBe(true);
     const box=await evaluate(`(()=>{const r=document.querySelector('.ol-viewport').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()`);
@@ -71,9 +73,9 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite UI draws to SQLite; browse
     expect(result.conflict).toBe(true);expect(result.missing).toBe(true);expect(result.viewport).toBe(1);expect(result.cancelled).toBe(true);expect(result.output.features[0].id).toBe('outside');expect(result.output.features[0].geometry.coordinates[0][0]).toEqual([29,41,10]);
     const before=count('workspaces');await call('Page.reload');await wait(async()=>count('workspaces')>before);expect(count('projects')).toBe(0);expect(count('features')).toBeGreaterThan(0);
     // Real local Worker/IndexedDB path in a separate Vite process.
-    const localPort=await port();launch(process.execPath,[resolve('node_modules/vite/bin/vite.js'),'--host','127.0.0.1','--port',String(localPort)],resolve('.'),{...env,VITE_DATA_SOURCE:'local',VITE_PROJECT_MANAGEMENT:'true'});
+    const localPort=await port();launch(process.execPath,[resolve('node_modules/vite/bin/vite.js'),'--config',resolve('tests/fixtures/project-management.vite.config.ts'),'--host','127.0.0.1','--port',String(localPort)],resolve('.'),{...env,PROJECT_UI_CACHE_DIR:join(temporary,'local-vite-cache'),VITE_DATA_SOURCE:'local',VITE_PROJECT_MANAGEMENT:'true'});
     await wait(async()=>(await fetch(`http://127.0.0.1:${localPort}`)).ok);await call('Page.navigate',{url:`http://127.0.0.1:${localPort}`});
-    await wait(async()=>await evaluate(`!!document.querySelector('.ol-viewport') && !document.querySelector('.map-loading')`));
+    await wait(async()=>await evaluate(`document.readyState==='complete' && !!document.querySelector('.ol-viewport') && !document.querySelector('.map-loading')`));
     expect(await evaluate(`document.querySelector('.project-management')===null`)).toBe(true);
     const local=await evaluate(`(async()=>{const {createRepository}=await import('/src/data/createRepository.ts');const r=createRepository();await r.createEmpty();await r.mutate({feature:{type:'Feature',properties:{},geometry:{type:'Point',coordinates:[29,41,3]}}});const total=(await r.list('',0,20)).total;r.dispose();return total})()`);expect(local).toBe(1);
   }finally{

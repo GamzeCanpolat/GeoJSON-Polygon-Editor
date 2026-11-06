@@ -16,12 +16,26 @@ const settle=()=>act(async()=>{await new Promise(r=>setTimeout(r,0));});
 async function click(text:string){const button=[...host.querySelectorAll('button')].find(b=>b.textContent===text);expect(button,host.textContent??'').toBeDefined();await act(async()=>button!.click());}
 async function name(value:string){const input=host.querySelector('input')!;await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));});}
 function service(){return {list:vi.fn().mockResolvedValue({items:[project],total:1}),get:vi.fn().mockResolvedValue(project),create:vi.fn().mockResolvedValue(project),save:vi.fn().mockResolvedValue({...project,version:2}),rename:vi.fn().mockResolvedValue({...project,name:'Yeni',version:2}),remove:vi.fn().mockResolvedValue(undefined),open:vi.fn().mockResolvedValue({workspace:{id:'w2',projectId:'p',activeDatasetId:'d2',generationId:'g',dataset,createdAt:'today',updatedAt:'today'},previousWorkspace:{id:'w1'}})} satisfies ProjectRepository;}
-async function render(options:{active?:Project|null;dirty?:boolean;draft?:boolean;busy?:boolean;pending?:boolean}={}){
+async function render(options:{active?:Project|null;dirty?:boolean;draft?:boolean;busy?:boolean;pending?:boolean;beforeOperation?:(saving:boolean)=>Promise<void>;hasPendingEdits?:()=>boolean}={}){
   const projects=service(),saved=vi.fn(),opened=vi.fn(),deleted=vi.fn(),lock=vi.fn();
-  function Harness(){const [active,setActive]=useState<Project|null>(options.active??null);return <ProjectManagement projects={projects} dataset={dataset} activeProject={active} dirty={options.dirty??false} hasDraft={options.draft??false} editorBusy={options.busy??false} hasPendingEdits={()=>options.pending??false} onActiveProjectChange={setActive} onSaved={saved} onOpened={opened} onDeleted={deleted} onOperationBusyChange={lock}/>;}
+  function Harness(){const [active,setActive]=useState<Project|null>(options.active??null);return <ProjectManagement projects={projects} dataset={dataset} activeProject={active} dirty={options.dirty??false} hasDraft={options.draft??false} editorBusy={options.busy??false} hasPendingEdits={options.hasPendingEdits??(()=>options.pending??false)} beforeOperation={options.beforeOperation} onActiveProjectChange={setActive} onSaved={saved} onOpened={opened} onDeleted={deleted} onOperationBusyChange={lock}/>;}
   await act(async()=>root.render(<Harness/>));return {projects,saved,opened,deleted,lock};
 }
 describe('project management UI',()=>{
+  it('waits for cell edits before acquiring the snapshot lock or reporting success',async()=>{
+    let finish!:()=>void;const before=vi.fn(()=>new Promise<void>(resolve=>{finish=resolve;}));
+    const s=await render({active:project,beforeOperation:before});await click('Projeyi Kaydet');await click('Projeyi Kaydet');
+    expect(before).toHaveBeenCalledExactlyOnceWith(true);expect(s.lock).not.toHaveBeenCalled();expect(s.projects.save).not.toHaveBeenCalled();expect(s.saved).not.toHaveBeenCalled();
+    await act(async()=>finish());expect(s.projects.save).toHaveBeenCalledExactlyOnceWith('p',1);expect(s.saved).toHaveBeenCalledOnce();expect(s.lock.mock.calls).toEqual([[true],[false]]);
+  });
+  it('does not snapshot or release an editor lock when the pending cell fails',async()=>{
+    const s=await render({active:project,beforeOperation:async()=>{throw new Error('Hücre kaydedilemedi');}});await click('Projeyi Kaydet');
+    expect(s.projects.save).not.toHaveBeenCalled();expect(s.saved).not.toHaveBeenCalled();expect(s.lock).not.toHaveBeenCalled();expect(host.querySelector('[role=alert]')?.textContent).toContain('Hücre kaydedilemedi');expect(host.querySelector('[role=status]')).toBeNull();
+  });
+  it('rechecks a sketch started while the cell barrier was waiting',async()=>{
+    let pending=false,finish!:()=>void;const s=await render({active:project,hasPendingEdits:()=>pending,beforeOperation:()=>new Promise<void>(r=>{finish=r;})});
+    await click('Projeyi Kaydet');pending=true;await act(async()=>finish());expect(s.projects.save).not.toHaveBeenCalled();expect(s.lock).not.toHaveBeenCalled();expect(host.querySelector('[role=alert]')?.textContent).toContain('Devam eden çizimi');
+  });
   it('is off by default even with an API repository',async()=>{
     vi.stubEnv('VITE_PROJECT_MANAGEMENT',undefined);const fetch=vi.fn();const repo=new ApiGeoJsonRepository({fetch});
     await act(async()=>root.render(<ProjectManagementFeature repository={repo} dataset={dataset} activeProject={null} dirty={false} hasDraft={false} editorBusy={false} onActiveProjectChange={()=>{}} onSaved={()=>{}} onOpened={()=>{}} onDeleted={()=>{}} onOperationBusyChange={()=>{}}/>));expect(host.innerHTML).toBe('');expect(fetch).not.toHaveBeenCalled();repo.dispose();
