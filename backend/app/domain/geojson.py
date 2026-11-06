@@ -10,8 +10,12 @@ def _position(value: object) -> None:
     if not isinstance(value, list) or len(value) < 2:
         raise ValueError("Koordinatlar en az iki sonlu sayı içermeli.")
     for number in value:
+        if isinstance(number, int) and not isinstance(number, bool) and abs(number) > 2**53 - 1:
+            raise ValueError("Koordinat hassasiyet kaybı olmadan harita sayısı olarak işlenemiyor.")
         if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number):
             raise ValueError("Koordinatlar sonlu sayı içermeli.")
+        if isinstance(number, float) and number.is_integer() and abs(number) > 2**53 - 1:
+            raise ValueError("Koordinat hassasiyet kaybı olmadan harita sayısı olarak işlenemiyor.")
     if not -180 <= value[0] <= 180 or not -90 <= value[1] <= 90:
         raise ValueError("WGS84 koordinatları bekleniyor: [boylam, enlem].")
 
@@ -78,6 +82,8 @@ def prepare_feature(value: object, *, remove_bbox: bool = False) -> dict[str, An
         if isinstance(item, dict):
             if any(not isinstance(key, str) for key in item):
                 raise ValueError("JSON nesne anahtarları metin olmalı.")
+            if "__proto__" in item:
+                raise ValueError("Desteklenmeyen __proto__ alanı.")
             for child in item.values():
                 check_json(child)
         elif isinstance(item, list):

@@ -1,18 +1,21 @@
 import type { Geometry, Position } from 'geojson';
 import type { GeoFeature } from './contracts';
+import { assertJsonNumbers } from './losslessJson';
 
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Structural checks only; topology/self-intersection checks belong to the validation service. */
 export function validateFeature(input: unknown): GeoFeature {
+  assertJsonNumbers(input);
   if (!object(input) || input.type !== 'Feature') throw new Error('Her kayıt GeoJSON Feature türünde olmalı.');
   if (input.properties !== null && !object(input.properties)) throw new Error('properties bir nesne veya null olmalı.');
-  if (input.id !== undefined && typeof input.id !== 'string' && typeof input.id !== 'number') throw new Error('Feature id bir metin veya sayı olmalı.');
+  if (input.id !== undefined && typeof input.id !== 'string' && typeof input.id !== 'number' && typeof input.id !== 'bigint') throw new Error('Feature id bir metin veya sayı olmalı.');
   validateGeometry(input.geometry);
   return input as unknown as GeoFeature;
 }
 
 function position(p: unknown): asserts p is Position {
+  if (Array.isArray(p) && p.some(n => typeof n === 'bigint')) throw new Error('Koordinat hassasiyet kaybı olmadan harita sayısı olarak işlenemiyor.');
   if (!Array.isArray(p) || p.length < 2 || !p.every((n) => typeof n === 'number' && Number.isFinite(n))) {
     throw new Error('Koordinatlar en az iki sonlu sayı içermeli.');
   }

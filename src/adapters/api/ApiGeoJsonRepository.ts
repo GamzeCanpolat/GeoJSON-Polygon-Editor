@@ -1,3 +1,5 @@
+import { parseJson, stringifyJson } from '../../domain/losslessJson';
+import { validateFeature } from '../../domain/geoJsonValidation';
 import { JSONParser } from '@streamparser/json';
 import { ApiProjectRepository } from './ApiProjectRepository';
 import type { ProjectRepository, ProjectWorkspace as Workspace } from '../../domain/projects';
@@ -68,8 +70,8 @@ export class ApiGeoJsonRepository implements GeoJsonRepository {
     return response;
   }
   private async json<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
-    const response = await this.request(path, { method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }, signal);
-    try { return await response.json() as T; } catch { throw new Error('Sunucu yanıtı okunamadı; yazma işleminin sonucu belirsiz olabilir.'); }
+    const response = await this.request(path, { method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: stringifyJson(body) }) }, signal);
+    try { return parseJson(await response.text()) as T; } catch (error) { throw new Error(`Sunucu yanıtı kayıpsız okunamadı: ${(error as Error).message} Yazma işleminin sonucu belirsiz olabilir.`); }
   }
   private async ready() {
     if (!this.workspace) { const w = await this.json<Workspace>('/workspaces', 'POST'); this.check(); this.workspace = w; }
@@ -81,7 +83,7 @@ export class ApiGeoJsonRepository implements GeoJsonRepository {
   private async read<T>(suffix: string): Promise<T> {
     const w = await this.ready();
     const response = await this.request(this.path(w, suffix));
-    const result = await response.json() as T;
+    const result = parseJson(await response.text()) as T;
     this.check();
     const dataset = response.headers.get('X-Dataset-Id'), generation = response.headers.get('X-Generation-Id'), revision = response.headers.get('X-Dataset-Revision');
     if (dataset && generation && revision !== null && Number.isSafeInteger(Number(revision))) {
@@ -98,14 +100,16 @@ export class ApiGeoJsonRepository implements GeoJsonRepository {
   query(request: ViewportRequest) { return this.queue(() => {
     const params = new URLSearchParams(); request.bounds.forEach(value => params.append('bounds', String(value)));
     params.set('tolerance', String(request.tolerance)); params.set('limit', String(request.limit));
-    return this.read<ViewportResult>('/viewport?' + params);
+    return this.read<ViewportResult>('/viewport?' + params).then(result => { result.records.forEach(record => validateFeature(record.feature)); return result; });
   }); }
   list(search: string, offset: number, limit: number) { return this.queue(() => this.read<FeaturePage>('/features?' + new URLSearchParams({ search, offset: String(offset), limit: String(limit) }))); }
   get(id: string) { return this.queue(async () => {
     const record = await this.read<FeatureRecord>('/features/' + encodeURIComponent(id));
+    validateFeature(record.feature);
     this.pins.set(id, this.state(this.workspace!)); return record;
   }); }
   mutate(request: MutationRequest) { return this.queue(async () => {
+    if (request.feature) validateFeature(request.feature);
     const w = await this.ready();
     const result = await this.json<MutationResult>(this.path(w, '/mutations'), 'POST', { ...request, ...(request.id ? this.pins.get(request.id) ?? this.state(w) : this.state(w)) });
     this.check(); w.dataset = result.dataset; this.pins.delete(result.id); return result;

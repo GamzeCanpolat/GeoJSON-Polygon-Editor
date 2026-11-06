@@ -4,6 +4,7 @@ import math
 
 import ijson
 from ijson.common import ObjectBuilder
+from app.domain.json_numbers import json_float
 
 
 class StreamFormatError(ValueError):
@@ -16,10 +17,11 @@ def _value(first, events, *, max_bytes, max_depth, max_nodes):
     event, value = first
     while True:
         nodes += 1
+        if event == "map_key" and value == "__proto__":
+            raise StreamFormatError("Desteklenmeyen __proto__ alanı.")
         if isinstance(value, Decimal):
-            value = float(value)
-            if not math.isfinite(value):
-                raise StreamFormatError("Sonlu JSON sayıları bekleniyor.")
+            try: value = json_float(value)
+            except ValueError as error: raise StreamFormatError(str(error)) from error
         size += len(value.encode("utf-8")) + 4 if isinstance(value, str) else 32 if event == "number" else 1
         if nodes > max_nodes or size > max_bytes:
             raise StreamFormatError("Tek Feature veya metadata boyut/işlem sınırı aşıldı.")
@@ -88,6 +90,8 @@ def stream_collection(reader, settings):
             event, key = next(events)
             if event == "end_map":
                 break
+            if event == "map_key" and key == "__proto__":
+                raise StreamFormatError("Desteklenmeyen __proto__ alanı.")
             if event != "map_key" or key in seen:
                 raise StreamFormatError("Geçersiz veya tekrarlanan kök JSON alanı.")
             seen.add(key)

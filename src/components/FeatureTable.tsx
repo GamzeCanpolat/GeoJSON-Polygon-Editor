@@ -1,3 +1,4 @@
+import { stringifyJson } from '../domain/losslessJson';
 import { useEffect, useRef, useState } from 'react';
 import type { PendingEditorEdits } from '../data/PendingEditorEdits';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
@@ -6,7 +7,7 @@ import { parseTableValue } from '../domain/editorDocument';
 
 type Row = { summary:FeatureSummary; properties:GeoFeature['properties'] };
 interface Props {repository:GeoJsonRepository;dataset:DatasetSummary|null;busy:boolean;edits?:PendingEditorEdits;onSelect(id:string):void;onApply(record:FeatureRecord,feature:GeoFeature):Promise<boolean>}
-const display = (value:unknown) => value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value);
+const display = (value:unknown) => value === undefined ? '' : typeof value === 'string' ? value : stringifyJson(value);
 export function FeatureTable({repository,dataset,busy,edits,onSelect,onApply}:Props) {
   const [rows,setRows]=useState<Row[]>([]),[offset,setOffset]=useState(0),[total,setTotal]=useState(0);
   const [loading,setLoading]=useState(false),[error,setError]=useState('');

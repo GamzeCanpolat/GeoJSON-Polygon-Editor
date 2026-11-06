@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@streamparser/json": "^0.0.22",
+    "lossless-json": "4.3.1",
     "lucide-react": "^0.468.0",
     "ol": "^10.7.0",
     "rbush": "^4.0.1",

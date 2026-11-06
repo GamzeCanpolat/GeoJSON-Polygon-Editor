@@ -5,6 +5,7 @@ import { beforeEach,afterEach,it,expect,vi } from 'vitest';
 import { FeatureTable } from '../../src/components/FeatureTable';
 import { PendingEditorEdits } from '../../src/data/PendingEditorEdits';
 import type { FeatureRecord,GeoJsonRepository } from '../../src/domain/contracts';
+import { stringifyJson } from '../../src/domain/losslessJson';
 let root:Root,host:HTMLDivElement;
 beforeEach(()=>{(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;host=document.createElement('div');document.body.append(host);root=createRoot(host);});
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
@@ -36,4 +37,13 @@ it('does not leave a rejected pending promise stuck after synchronous validation
 it('flushes multiple cell drafts sequentially without losing the first property or Z',async()=>{
   const s=await setup();await change('name','Updated');await change('number','7');await act(async()=>s.edits.flush());
   expect(s.onApply).toHaveBeenCalledTimes(2);const feature=s.onApply.mock.calls[1][1];expect(feature.properties).toEqual({name:'Updated',number:7});expect(feature.geometry).toEqual({type:'Point',coordinates:[29,41,42]});expect(feature.id).toBe('external');
+});
+it('renders and edits large numeric cells without changing external IDs or nested values',async()=>{
+  const s=await setup();const record=await s.repo.get();record.feature.id=9007199254740993n;
+  record.feature.properties={name:'Original',exact:9007199254740993n,nested:[-9007199254740993n,9007199254740995n]};
+  await act(async()=>s.onApply(record,record.feature));await s.render(1);
+  expect(host.querySelector<HTMLInputElement>('input[aria-label^="exact ·"]')?.value).toBe('9007199254740993');
+  await change('exact','9007199254740995');await act(async()=>s.edits.flush());
+  const result=s.onApply.mock.calls.at(-1)![1];expect(stringifyJson(result)).toContain('"exact":9007199254740995');
+  expect(result.id).toBe(9007199254740993n);expect(result.properties!.nested).toEqual([-9007199254740993n,9007199254740995n]);expect(result.geometry).toEqual(record.feature.geometry);
 });

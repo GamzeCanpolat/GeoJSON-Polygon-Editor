@@ -32,18 +32,19 @@ def reject_limit(message: str) -> None:
 
 
 def strict_json_loads(data: bytes) -> object:
+    from app.domain.json_numbers import json_float
     def reject_constant(_value):
         raise ValueError("NaN ve Infinity desteklenmiyor.")
     def finite_float(value):
-        import math
-        result = float(value)
-        if not math.isfinite(result):
-            raise ValueError("Sonlu JSON sayıları bekleniyor.")
-        return result
+        return json_float(value)
+    def object_members(pairs):
+        if any(key == "__proto__" for key, _value in pairs):
+            raise ValueError("Desteklenmeyen __proto__ alanı.")
+        return dict(pairs)
     try:
-        return json.loads(data, parse_constant=reject_constant, parse_float=finite_float)
+        return json.loads(data, parse_constant=reject_constant, parse_float=finite_float, object_pairs_hook=object_members)
     except (ValueError, UnicodeError, RecursionError) as error:
-        raise GeometryValidationError("Geçerli JSON ve sonlu sayılar bekleniyor.", code="INVALID_JSON", status_code=422) from error
+        raise GeometryValidationError(f"Geçerli JSON ve sonlu sayılar bekleniyor. {error}", code="INVALID_JSON", status_code=422) from error
 
 
 class GeometryValidationService:
