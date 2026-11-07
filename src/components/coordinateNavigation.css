@@ -1,0 +1,84 @@
+.coordinate-navigation {
+  position: absolute;
+  inset: 58px 12px 12px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.button.coordinate-trigger,
+.coordinate-panel {
+  pointer-events: auto;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.button.coordinate-trigger:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.coordinate-panel {
+  width: min(248px, 100%);
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.coordinate-panel-heading,
+.coordinate-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.coordinate-panel label {
+  display: grid;
+  gap: 4px;
+}
+
+.coordinate-panel input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.coordinate-panel :focus-visible,
+.coordinate-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.coordinate-panel p {
+  margin: 0;
+}
+
+.coordinate-error {
+  color: var(--danger);
+}
+
+/* OpenLayers sets pointer events inline. Keep the map interactive under the pin. */
+.coordinate-marker-overlay {
+  pointer-events: none !important;
+}
+
+.coordinate-location-marker {
+  width: 20px;
+  height: 20px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #d12645;
+  box-shadow: 0 0 0 2px #8f1630, 0 0 0 7px rgb(209 38 69 / 35%);
+}
