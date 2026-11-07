@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import mapinDataLogo from './assets/mapin-data-logo.svg';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CircleHelp, Circle, CircleDot, Crosshair, Download, Eye, EyeOff, FileJson2, FolderOpen, FolderTree, Layers3, LoaderCircle, Magnet, Maximize, Moon, MousePointer2, Move, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pencil, Pentagon, Plus, Redo2, Search, Square, Spline, ShieldCheck, Sun, Trash2, Undo2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { MapCanvas } from './components/MapCanvas';
 import { CoordinateNavigation } from './components/CoordinateNavigation';
@@ -346,7 +347,10 @@ export function App() {
     onDragLeave={(event) => { event.preventDefault(); if (--dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false); } }}
     onDrop={(event) => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (categoriesOpen || importOpen) return; const file = event.dataTransfer.files[0]; if (file) receiveFile(file); }}>
     <header className="topbar">
-      <a className="brand" href="#" onClick={(event) => event.preventDefault()} aria-label="GeoJSON Editor"><span className="brand-mark"><FileJson2 size={21} strokeWidth={1.8} /></span><span className="brand-copy"><strong>GeoJSON Editor</strong><span title={dataset?.name}>{dataset?.name ?? 'Çalışma hazırlanıyor…'}</span></span></a>
+      <a className="brand" href="#" onClick={(event) => event.preventDefault()}>
+        <img className="brand-logo" src={mapinDataLogo} alt="Mapin Data" width={1004} height={287} />
+        <span className="brand-copy"><strong>GeoJSON Editor</strong><span title={dataset?.name}>{dataset?.name ?? 'Çalışma hazırlanıyor…'}</span></span>
+      </a>
       <div className="topbar-divider" /><div className="breadcrumb"><strong>{dataset?.name ?? 'Yeni çalışma'}</strong></div>
       <ProjectManagementFeature repository={repository} dataset={dataset} activeProject={activeProject} dirty={dirty||tableDirty} hasDraft={codeDirty}
         editorBusy={!!busy || importOpen || categoriesOpen || help || !!confirmAction}
