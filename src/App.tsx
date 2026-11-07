@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CircleHelp, Circle, CircleDot, Crosshair, Download, Eye, EyeOff, FileJson2, FolderOpen, FolderTree, Layers3, LoaderCircle, Magnet, Maximize, Moon, MousePointer2, Move, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pencil, Pentagon, Plus, Redo2, Search, Square, Spline, ShieldCheck, Sun, Trash2, Undo2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { MapCanvas } from './components/MapCanvas';
+import { CoordinateNavigation } from './components/CoordinateNavigation';
 import { DataPanel } from './components/DataPanel';
 import { isLargeDocument, MAX_EDITOR_TEXT, parseEditorDocument } from './domain/editorDocument';
 import { CategoryManager } from './components/CategoryManager';
@@ -373,6 +374,8 @@ export function App() {
       </aside>}
       <section className="map-workspace" aria-label="Harita çalışma alanı">
         <MapCanvas ref={map} repository={repository} dataset={dataset} selected={selected} mode={mode} basemap={basemap} snap={snap} visible={visible} hiddenIds={hiddenIds} busy={!!busy} onSelect={(id) => void select(id)} onCreate={(feature) => void commit(feature, true)} onUpdate={(feature) => void commit(feature)} onViewport={setViewport} onCoordinate={setCoordinate} onError={(message) => notify('error', message)} />
+        <CoordinateNavigation onNavigate={coordinate => map.current?.goToCoordinate(coordinate)}
+          onClear={() => map.current?.clearCoordinateMarker()} />
         <div className="map-topline"><span className="map-location"><span className="status-dot" />ÇALIŞMA HARİTASI</span><button className="map-counter" onClick={() => map.current?.fit(dataset?.bounds ?? null)} title="Çalışmanın tamamına yakınlaş"><Pentagon size={13} />{nf.format(dataset?.count ?? 0)} şekil<Maximize size={12} /></button></div>
 
         <div className="map-navigation"><button title="Yakınlaş" aria-label="Yakınlaş" onClick={() => map.current?.zoom(1)}><ZoomIn size={18} /></button><button title="Uzaklaş" aria-label="Uzaklaş" onClick={() => map.current?.zoom(-1)}><ZoomOut size={18} /></button><span /><button title="Tümünü göster" aria-label="Tümünü göster" onClick={() => map.current?.fit(dataset?.bounds ?? null)}><Crosshair size={18} /></button></div>

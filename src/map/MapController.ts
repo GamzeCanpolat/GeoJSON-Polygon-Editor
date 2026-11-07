@@ -1,4 +1,5 @@
 import Map from 'ol/Map';
+import Overlay from 'ol/Overlay';
 import View from 'ol/View';
 import Feature from 'ol/Feature';
 import GeoJSON from 'ol/format/GeoJSON';
@@ -20,6 +21,7 @@ import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
 import { Fill, Stroke, Style, Circle as CircleStyle } from 'ol/style';
 import { getArea } from 'ol/sphere';
 import type { Bounds, FeatureRecord, GeoFeature, GeoJsonRepository } from '../domain/contracts';
+import { MAX_MERCATOR_LATITUDE, type GeographicCoordinate } from '../domain/coordinateNavigation';
 import { readEditableFeature, writeEditedFeature } from './featureGeometry';
 import { createBasemapSource, getBasemapDefinition, type Basemap } from './basemaps';
 export type { Basemap } from './basemaps';
@@ -57,6 +59,7 @@ const vertexStyle = new Style({
 
 export class MapController {
   readonly map: Map;
+  private readonly coordinateMarker: Overlay;
   private format = new GeoJSON();
   private previewSource = new VectorSource<Feature<Geometry>>({ wrapX: false });
   private selectedSource = new VectorSource<Feature<Geometry>>({ wrapX: false });
@@ -97,6 +100,14 @@ export class MapController {
       controls: controls({ zoom: false, rotate: false }).extend([new ScaleLine({ units: 'metric' })]),
       view: new View({ center: fromLonLat([35, 39]), zoom: 5.5, minZoom: 2, maxZoom: 21, constrainResolution: false }),
     });
+    const marker = document.createElement('div');
+    marker.className = 'coordinate-location-marker';
+    marker.setAttribute('aria-hidden', 'true');
+    this.coordinateMarker = new Overlay({
+      id: 'coordinate-navigation-marker', element: marker, positioning: 'center-center',
+      className: 'coordinate-marker-overlay', stopEvent: false,
+    });
+    this.map.addOverlay(this.coordinateMarker);
     this.draw = this.createDraw('draw');
     this.modify = new Modify({ features: this.selectedFeatures, pixelTolerance: 12 });
     this.translate = new Translate({ features: this.selectedFeatures });
@@ -215,6 +226,17 @@ export class MapController {
     if (!bounds) return;
     this.map.getView().fit(transformExtent(bounds, 'EPSG:4326', 'EPSG:3857'), { padding: [85, 75, 85, 75], duration: 450, maxZoom: 19 });
   }
+  goToCoordinate(coordinate: GeographicCoordinate) {
+    const { longitude } = coordinate;
+    const latitude = Math.max(-MAX_MERCATOR_LATITUDE, Math.min(MAX_MERCATOR_LATITUDE, coordinate.latitude));
+    const center = fromLonLat([longitude, latitude]);
+    this.coordinateMarker.setPosition(center);
+    const view = this.map.getView();
+    view.cancelAnimations();
+    const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 650;
+    view.animate({ center, zoom: 16, duration });
+  }
+  clearCoordinateMarker() { this.coordinateMarker.setPosition(undefined); }
   zoom(delta: number) { const view = this.map.getView(); view.animate({ zoom: (view.getZoom() ?? 12) + delta, duration: 200 }); }
   north() { this.map.getView().animate({ rotation: 0, duration: 250 }); }
   resize() { this.map.updateSize(); }
