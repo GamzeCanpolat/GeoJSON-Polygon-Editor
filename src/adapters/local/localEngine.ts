@@ -1,3 +1,4 @@
+import { stringifyJson } from '../../domain/losslessJson';
 import RBush from 'rbush';
 import type { DatasetSummary, FeaturePage, FeatureRecord, FeatureSummary, GeoFeature, ImportProgress, MutationRequest, MutationResult, ViewportRequest, ViewportResult } from '../../domain/contracts';
 import { describe, simplifyGeometry, validateFeature } from './geometry';
@@ -155,7 +156,7 @@ export class LocalEngine {
     let first = true;
     for (let offset = 0; offset < ordinals.length; offset += 200) {
       const batch = await this.db.getMany(this.active.id, ordinals.slice(offset, offset + 200));
-      const chunk = batch.map(({ feature }) => JSON.stringify(feature)).join(',');
+      const chunk = batch.map(({ feature }) => stringifyJson(feature)).join(',');
       parts.push(new Blob([`${first ? '' : ','}${chunk}`])); first = false;
       onProgress({ bytesRead: Math.min(offset + 200, ordinals.length), totalBytes: ordinals.length, featuresRead: Math.min(offset + 200, ordinals.length) });
     }

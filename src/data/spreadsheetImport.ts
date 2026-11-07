@@ -6,6 +6,7 @@ import type { GeoFeature } from '../domain/contracts';
 import { validateFeature } from '../domain/geoJsonValidation';
 import { CategoryCatalog } from '../domain/categories';
 import { MAX_EXCEL_BYTES, type ImportIssue, type ImportKind, type SpreadsheetInfo, type SpreadsheetMapping } from './importTypes';
+import { parseJson, parseJsonNumber, stringifyJson } from '../domain/losslessJson';
 
 const MAX_ROWS=100000,MAX_FEATURES=250000,MAX_OUTPUT=200*1024*1024;
 const normalized=(text:string)=>text.trim().toLocaleLowerCase('tr-TR').replace(/ı/g,'i').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
@@ -14,6 +15,7 @@ const bounds=(sheet:WorkSheet)=>utils.decode_range(sheet['!ref']??'A1');
 function cell(sheet:WorkSheet,row:number,column:number):CellObject|undefined {
   if(sheet['!merges']?.some(({s,e})=>row>=s.r&&row<=e.r&&column>=s.c&&column<=e.c))throw new Error('Veri sütunlarında birleştirilmiş hücre kullanmayın.');
   const value=sheet[utils.encode_cell({r:row,c:column})] as CellObject|undefined;
+  if(value?.t==='n'&&typeof value.v==='number'&&Number.isInteger(value.v)&&(!Number.isSafeInteger(value.v)||Math.abs(value.v)>=1e15))throw new Error('Excel sayı hücresinde 15 basamak sınırı nedeniyle hassasiyet kaybı olabilir; özgün değer geri getirilemez. Kimliği kaynak Excel dosyasında metin olarak saklayın.');
   if((value?.f!==undefined||value?.F!==undefined)&&(value.v===undefined||value.v===null))throw new Error('Hücrenin hesaplanmış değeri yok. Excel’de hesaplayıp kaydedin.');
   return value;
 }
@@ -30,10 +32,10 @@ function parseJsonCell(raw:string):unknown {
     raw=trimJsonCell(raw);
     if(!raw||/^(?:null|nan|none|undefined|n\/a|#n\/a)$/i.test(raw))return null;
     let value:unknown;
-    try{value=JSON.parse(raw,(key,value:unknown)=>{if(key==='__proto__')throw new Error('unsafe');return value;});}
+    try{value=parseJson(raw);}
     catch(cause){
       const message=(cause as Error).message;
-      if(message==='unsafe')throw new Error('Desteklenmeyen __proto__ alanı.');
+      if(message.includes('__proto__')||message.includes('hassasiyet')||message.includes('güvenli işlem'))throw cause;
       const position=/position (\d+)/i.exec(message),location=position?` (${Number(position[1])+1}. karakter)`:'';
       const hint=/end of|unterminated/i.test(message)?'Metin yarım kalmış; kapanış tırnağı veya parantezi eksik olabilir.':'Virgül, çift tırnak ve parantezleri kontrol edin.';
       throw new Error(`JSON okunamadı${location}. ${hint}`);
@@ -125,7 +127,8 @@ export function inspectImportSheet(workbook:WorkBook,requested?:string):Spreadsh
 function numeric(value:CellObject|undefined,label:string) {
   const raw=text(value);
   if(!raw||!/^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:e[+-]?\d+)?$/i.test(raw))throw new Error(`${label} sayısal olmalı.`);
-  const number=Number(raw.replace(',','.'));if(!Number.isFinite(number))throw new Error(`${label} sonlu bir sayı olmalı.`);return number;
+  const token=raw.replace(',','.').replace(/^\+/,'').replace(/^(-?)\./,'$10.').replace(/\.$/,'.0');
+  const number=parseJsonNumber(token);if(typeof number!=='number'||!Number.isFinite(number))throw new Error(`${label} hassasiyet kaybı olmadan sonlu bir sayı olarak işlenemiyor.`);return number;
 }
 function properties(sheet:WorkSheet,row:number,info:SpreadsheetInfo,excluded:Set<number>) {
   const result:Record<string,unknown>=Object.create(null);
@@ -183,6 +186,10 @@ export function convertImportSheet(workbook:WorkBook,mapping:SpreadsheetMapping)
           let geometry;
           if(mapping.kind==='wkt'){
             const srid=/^SRID=(\d+);/i.exec(raw);if(srid&&srid[1]!=='4326')throw new Error('WKT için WGS84 / SRID 4326 gerekli.');
+            for(const token of raw.replace(/^SRID=4326;/i,'').match(/[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?/gi)??[]){
+              const value=parseJsonNumber(token.replace(/^\+/,'').replace(/^(-?)\./,'$10.').replace(/\.$/,'.0'));
+              if(typeof value!=='number')throw new Error('WKT koordinatı hassasiyet kaybı olmadan işlenemiyor.');
+            }
             geometry=new WKT().readGeometry(raw.replace(/^SRID=4326;/i,''));
           }else{validPolyline(raw);geometry=new Polyline().readGeometry(raw);}
           features=[validateFeature({type:'Feature',properties:attrs,geometry:geojson.writeGeometryObject(geometry)})];
@@ -190,7 +197,7 @@ export function convertImportSheet(workbook:WorkBook,mapping:SpreadsheetMapping)
       }
       for(const feature of features){
         if(count>=MAX_FEATURES)throw new Error('Excel’den en fazla 250.000 şekil alınabilir.');
-        const encoded=JSON.stringify(validateFeature(feature));bytes+=encoder.encode(encoded).byteLength;
+        const encoded=stringifyJson(validateFeature(feature));bytes+=encoder.encode(encoded).byteLength;
         if(bytes>MAX_OUTPUT)throw new Error('Dönüştürülmüş veri 200 MB sınırını aşıyor; doğrudan GeoJSON kullanın.');
         chunks.push(`${count?',':''}${encoded}`);count++;
       }

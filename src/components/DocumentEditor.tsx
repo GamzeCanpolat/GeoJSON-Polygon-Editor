@@ -1,3 +1,4 @@
+import { parseJson } from '../domain/losslessJson';
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Check, Code2, RefreshCw } from 'lucide-react';
 import type { DatasetSummary, FeatureRecord, GeoFeature, GeoJsonRepository } from '../domain/contracts';
@@ -35,7 +36,7 @@ export function DocumentEditor(props: Props) {
           if (request !== version.current) return;
           if (blob.size > MAX_EDITOR_TEXT) { setScope('feature'); requested = 'feature'; setLimit('Tüm dosya kod editörü sınırını aşıyor; seçili şekli düzenleyin.'); }
           else {
-            try { text = formatEditorDocument(JSON.parse(await blob.text())); }
+            try { text = formatEditorDocument(parseJson(await blob.text())); }
             catch(cause) { if((cause as Error).message.includes('sınırını')){setScope('feature');requested='feature';setLimit((cause as Error).message);}else throw cause; }
           }
         }
