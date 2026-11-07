@@ -1,3 +1,4 @@
+import { backendPython } from './backendRuntime';
 import { parseJson, stringifyJson } from '../../src/domain/losslessJson';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,7 @@ import type { GeoFeature } from '../../src/domain/contracts';
 
 it('preserves exact JSON integers across HTTP mutations, snapshots and fresh repository instances', async () => {
   const temporary = mkdtempSync(join(tmpdir(),'geojson-api-'));
-  const cwd = resolve('backend'); const python = join(cwd,'.venv/bin/python');
+  const cwd = resolve('backend'); const python = backendPython();
   const env = {...process.env,GEOJSON_DATABASE_PATH:join(temporary,'projects.db')};
   const children: ChildProcess[] = [];
   const launch = (args:string[]) => { const child=spawn(python,args,{cwd,env,stdio:['ignore','pipe','pipe']}); children.push(child); return child; };

@@ -1,3 +1,4 @@
+import { backendLauncher, backendPython } from './backendRuntime';
 import { it, expect } from 'vitest';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,7 +13,7 @@ async function port(){const server=createServer();server.listen(0,'127.0.0.1');a
 // Explicit opt-in: requires local Chrome and the backend Python environment.
 it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('project UI saves a drawn polygon, survives refresh, reopens, resaves and confirms deletion',async()=>{
   const temporary=mkdtempSync(join(tmpdir(),'geojson-browser-')); const children:ChildProcess[]=[];
-  const backend=resolve('backend'),python=join(backend,'.venv/bin/python'),database=join(temporary,'projects.db');
+  const backend=resolve('backend'),python=backendPython(),database=join(temporary,'projects.db');
   const [apiPort,vitePort,debugPort]=await Promise.all([port(),port(),port()]);
   const env={...process.env,PROJECT_UI_CACHE_DIR:join(temporary,'vite-cache'),GEOJSON_DATABASE_PATH:database,GEOJSON_CORS_ORIGINS:JSON.stringify([`http://127.0.0.1:${vitePort}`])};
   let logs='';
@@ -20,9 +21,9 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('project UI saves a drawn polygo
   let socket:WebSocket|undefined;
   const wait=async(test:()=>Promise<boolean>)=>{for(let i=0;i<150;i++){try{if(await test())return;}catch{}await pause();}throw new Error('Timed out: '+logs.split('\n').filter(l=>/INFO:|ERROR|error|VITE|vite/.test(l)).slice(-35).join('\n'));};
   try{
-    execFileSync(python,['-m','alembic','upgrade','head'],{cwd:backend,env,stdio:'pipe'});
-    launch(python,['-m','uvicorn','app.main:app','--host','127.0.0.1','--port',String(apiPort)],backend);
-    launch(python,['-m','app.workers.import_worker','--poll-interval','0.05'],backend);
+    execFileSync('bash',[backendLauncher,'migrate'],{cwd:backend,env,stdio:'pipe'});
+    launch('bash',[backendLauncher,'api','--port',String(apiPort)],backend);
+    launch('bash',[backendLauncher,'worker','--poll-interval','0.05'],backend);
     launch(process.execPath,[resolve('node_modules/vite/bin/vite.js'),'--config',resolve('tests/fixtures/project-management.vite.config.ts'),'--host','127.0.0.1','--port',String(vitePort)],resolve('.'),{...env,VITE_PROJECT_MANAGEMENT:'true',VITE_DATA_SOURCE:'api',VITE_API_BASE_URL:`http://127.0.0.1:${apiPort}`});
     await wait(async()=> (await fetch(`http://127.0.0.1:${apiPort}/api/v1/health`)).ok);
     await wait(async()=> (await fetch(`http://127.0.0.1:${vitePort}`)).ok);
@@ -123,6 +124,9 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('project UI saves a drawn polygo
     await evaluate(`document.querySelector('.project-mobile-menu summary').click()`);
     expect(await evaluate(`(()=>{const r=document.querySelector('.project-mobile-menu>div').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})()`)).toBe(true);
     expect(await evaluate(`document.documentElement.scrollWidth<=innerWidth`)).toBe(true);
+    expect(sql('PRAGMA integrity_check')).toEqual([['ok']]);
+    expect(sql('PRAGMA foreign_key_check')).toEqual([]);
+    expect(sql("SELECT rtreecheck('feature_rtree')")).toEqual([['ok']]);
 
   }finally{
     socket?.close();await Promise.all(children.reverse().map(async child=>{if(child.exitCode!==null)return;const done=once(child,'exit');child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),2000);await done;clearTimeout(timer);}));

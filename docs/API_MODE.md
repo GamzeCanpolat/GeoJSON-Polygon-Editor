@@ -1,11 +1,17 @@
-# Local / FastAPI çalışma modları — Aşama 7C
+# Local / FastAPI çalışma modları
+
+Güncel kurulum ve teslim koşulları: [işletim rehberi](RUNBOOK.md) ve
+[Aşama 10C kabul raporu](STAGE10C_REPORT.md). Bu belgenin sonundaki 7C test
+sayıları ve dosya listesi tarihsel aşama kayıtlarıdır.
 
 Proje yönetimi için artık API moduna ek olarak `VITE_PROJECT_MANAGEMENT=true`
 verilebilir; varsayılan kapalıdır. Bu değişiklik Vite'ın yeniden başlatılmasını
 gerektirir. Güncel ekranlar ve komutlar: [7D-3 rehberi](PROJECT_UI_INTEGRATION.md).
 
-`src/data/createRepository.ts` yalnızca adaptörü seçer. Harita, React bileşenleri,
-OpenLayers, tablo, kategori, Excel dönüşümü, tema ve veri sözleşmesi değiştirilmedi.
+`src/data/createRepository.ts` yalnızca adaptörü seçer. 7C'de bu seçim için
+harita, OpenLayers ve tema yeniden yazılmadı. Sonraki aşamalarda proje UI'si ve
+9B kayıpsız sayı desteği eklendi; `GeoFeature.id` iç temsilde bigint destekler,
+HTTP/GeoJSON çıktısında ise JSON sayısı olarak kalır.
 
 - Değişken yoksa veya `VITE_DATA_SOURCE=local` ise mevcut WorkerGeoJsonRepository.
 - `VITE_DATA_SOURCE=api` ise ApiGeoJsonRepository.
@@ -19,40 +25,15 @@ modu değiştirebilirsiniz; gerçek .env dosyaları ignore edilir. Vite değişk
 başlangıçta/build sırasında okunur; değiştirdikten sonra Vite'ı yeniden başlatın.
 Var olan terminal sunucusu aynı portu kullanıyorsa önce o terminalde Ctrl+C yapın.
 
-## macOS: API modunu başlatma
+## macOS API modu
 
-Terminal 1 — FastAPI (mevcut Python sanal ortamıyla):
+FastAPI, import worker ve Vite'ı üç terminalde çalıştırın. Başlatıcı
+bağımsız Python ve SQLite sürümünü doğrular. API ve worker için aynı
+deneme DB yolunu kullanın.
+[Kurulum ve çalıştırma komutları](RUNBOOK.md#üç-terminalle-başlatma)
 
-```bash
-cd ~/Desktop/GeoJSON-Polygon-Editor/backend
-.venv/bin/python -m alembic upgrade head
-.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-Terminal 2 — import worker (JSON ve dönüştürülmüş Excel importu için gereklidir):
-
-```bash
-cd ~/Desktop/GeoJSON-Polygon-Editor/backend
-.venv/bin/python -m app.workers.import_worker --poll-interval 0.25
-```
-
-Terminal 3 — Vite API modu:
-
-```bash
-cd ~/Desktop/GeoJSON-Polygon-Editor
-VITE_DATA_SOURCE=api VITE_API_BASE_URL=http://127.0.0.1:8000 npm run dev
-```
-
-Uygulama: http://127.0.0.1:5173. Swagger: http://127.0.0.1:8000/docs.
-Worker yoksa import sırada kalır; tarayıcıda iptal edilebilir. Backend yoksa
-bağlantı hatası gösterilir; tarayıcıda ayrı bir local veri kümesi oluşturulmaz.
-
-Local mod için yalnızca Terminal 3:
-
-```bash
-cd ~/Desktop/GeoJSON-Polygon-Editor
-VITE_DATA_SOURCE=local npm run dev
-```
+Worker çalışmadığında import sırada kalır ve tarayıcıdan iptal edilebilir.
+Local mod komutu işletim rehberindedir. [Local ve API modu](RUNBOOK.md#local-ve-api-modu)
 
 ## Workspace yaşam döngüsü
 
@@ -63,8 +44,10 @@ edildikten sonra yeni boş workspace açılır. Önceki SQLite kayıtlarının k
 bu kayıtların yeni sayfada otomatik açılması anlamına gelmez.
 
 Geçici API workspace, kaydedilmiş Project snapshot'ı değildir. Kalıcı proje
-listeleme/kaydetme/açma ekranları henüz yoktur. Yeni sekmelerin/workspace'lerin
-otomatik birleştirilmesi veya aynı aktif projeyi paylaşması uygulanmadı.
+listeleme/kaydetme/açma ekranları API modunda `VITE_PROJECT_MANAGEMENT=true`
+ile kullanılabilir. Yenilemeden sonra Projelerim'den kayıtlı projeyi açın.
+Yeni sekmelerin/workspace'lerin otomatik birleştirilmesi veya aynı aktif
+projeyi paylaşması uygulanmadı.
 
 ## Testler
 
@@ -73,11 +56,11 @@ npm test
 npm run build
 ./node_modules/.bin/vitest run --config tests/api.integration.config.ts
 RUN_BROWSER_INTEGRATION=1 ./node_modules/.bin/vitest run --config tests/api.integration.config.ts tests/integration/browserModes.test.ts
-cd backend
-.venv/bin/python -m pytest -q
+runtime_python="$(bash scripts/run-backend.sh python-path)" &&
+  (cd backend && "$runtime_python" -m pytest -q)
 ```
 
-Tarayıcı testi macOS Google Chrome ve backend/.venv gerektirir. Normal testlere
+Tarayıcı testi macOS Google Chrome ve doğrulanmış bağımsız Python gerektirir. Normal testlere
 isteğe bağlıdır. Ayrı Chrome profili, rastgele loopback portları, Vite API/local
 sunucuları, FastAPI, worker ve geçici SQLite kullanır; geliştirme veritabanını
 kullanmaz. Alt süreçler ve geçici dosyalar sonunda temizlenir.
@@ -85,10 +68,10 @@ kullanmaz. Alt süreçler ve geçici dosyalar sonunda temizlenir.
 Gerçek UI testinde araç çubuğundan Polygon aracı seçilir ve haritaya fare
 tıklamaları gönderilir. SQLite features tablosunda Polygon kaydı sorgulanır.
 Diğer metotlar aynı Vite fabrikasının seçtiği adaptörle gerçek tarayıcı/CORS
-üzerinden denenir: update/delete/restore, viewport, list/get, kategori, JSON
-roundtrip, mevcut Excel dönüştürücüsünün çıktısının importu, ilerleme/iptal,
-export ve gerçek 409/422 yanıtları. Excel dosya seçme diyaloğunun tamamı bu
-tarayıcı testinin kapsamında değildir; dönüştürücü mevcut testlerde ayrıca kapsanır.
+üzerinden denenir. Düzenleme, silme, geri alma, viewport, liste/detay, ana ve alt
+kategori, GeoJSON import/export, iptal ve 409/422 yanıtları kapsanır. Gerçek
+`.xlsx` dosyası Chrome içe aktarma diyaloğundan yüklenir ve SQLite'taki
+nokta koordinatlarıyla özniteliği doğrulanır.
 
 2026-11-06 doğrulama sonucu:
 
@@ -110,7 +93,7 @@ Yeni dosyalar kök `.env.example`, bu belge, `tests/unit/createRepository.test.t
 ve `tests/integration/browserModes.test.ts`. contracts.ts, INTEGRATION.md,
 backend ve mevcut UI kaynakları değişmedi.
 
-## Gamze ile kararlaştırılacak sonraki ekranlar
+## Aşama 7C'de sonraki çalışma olarak belirlenenler (tarihsel)
 
 - Proje listesi, adlandırarak kaydetme, kayıtlı projeyi açma ve yeniden kaydetme.
 - Ayrı ProjectRepository ile ortak workspace bağlamı ve project.version kontrolü.
@@ -118,5 +101,5 @@ backend ve mevcut UI kaynakları değişmedi.
 - Proje/import değişiminde seçim, undo geçmişi, tablo ve haritanın yenilenmesi.
 - Bağlantı kaybı, worker bekleme, 409 çatışması ve büyük export için kullanıcı akışı.
 
-Bu aşamada bu ekranlar veya tasarım değişiklikleri yapılmadı. Sonraki aşama
-kullanıcı onayına bağlıdır.
+Bu liste 7C'nin kapsam sınırını kaydeder. Proje ekranları sonraki 7D aşamalarında
+uygulandı; güncel davranış için PROJECT_UI_INTEGRATION.md ve RUNBOOK.md'yi okuyun.

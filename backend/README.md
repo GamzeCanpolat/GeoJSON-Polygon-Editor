@@ -1,44 +1,34 @@
-# GeoJSON Editor backend — Aşama 6
+# GeoJSON Editor backend
 
-Python 3.11+ gerekir. FastAPI, SQLAlchemy ve SQLite altyapısı üzerine altı veri
+Doğrulanan çalışma ortamı Python 3.13.18 ve SQLite 3.53.1 kullanır. FastAPI, SQLAlchemy ve SQLite altyapısı üzerine altı veri
 tablosu, transaction kapsamlı veri servisleri ve kalıcı proje/workspace API'si
 eklenmiştir. Shapely ile sınırlı, salt okunur geometri doğrulama servisi ve iki
 doğrulama endpointi hazırdır. Kalıcı SQLite job kuyruğu, ayrı import worker'ı ve
-akışlı import/export API'leri eklenmiştir. Frontend bağlantısı yapılmamıştır.
+akışlı import/export API'leri eklenmiştir. React API adaptörü ve kalıcı proje
+ekranları artık bağlıdır; varsayılan local mod ve kapalı proje bayrağı korunur.
 
-## macOS kurulumu
+Güncel üç terminal kurulumu, test, yedekleme/geri yükleme ve hata giderme için
+[işletim rehberini](../docs/RUNBOOK.md), teslim koşulları ve test sonuçları için
+[Aşama 10C raporunu](../docs/STAGE10C_REPORT.md) kullanın. Özellikle Python'un
+kullandığı SQLite sürümü teslim öncesi kontrol edilmelidir. Aşağıdaki aşama
+bazlı test sayıları tarihsel doğrulama kayıtlarıdır. Güncel migration head'i
+`0003_spatial_index`'tir; kullanıcı DB'sinde migration öncesi yedek alın.
 
-Proje kökünden:
+## macOS kurulumu ve başlatma
 
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
-```
-
-`.env` zorunlu değildir. İsteğe bağlı olarak `cp .env.example .env` ile yerel
-ayarları oluşturun. `.env` ve sanal ortam Git tarafından dışlanır.
-
-## Sunucuyu başlatma
-
-`backend/` içinden, sanal ortam etkin durumdayken:
-
-```bash
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
+Proje kökünden `bash scripts/run-backend.sh python-path` ile doğrulanmış
+Python yolunu alın. Migration, FastAPI ve worker komutları için üç terminal
+örneğini kullanın.
+[Bağımsız runtime kurulumu](../docs/RUNBOOK.md#bağımsız-python-ortamı-kurulumu) ·
+[Üç terminalle başlatma](../docs/RUNBOOK.md#üç-terminalle-başlatma)
 
 - Health: http://127.0.0.1:8000/api/v1/health
 - Swagger: http://127.0.0.1:8000/docs
 - OpenAPI: http://127.0.0.1:8000/openapi.json
 
-Başarılı health cevabı: `{"status":"ok","database":"ok"}`. Gerçek `SELECT 1`
-sorgusu başarısızsa HTTP 503 döner. Uygulama açılışında veritabanına bağlanılamazsa
-başlangıç başarısız olur. `Control + C` sunucuyu durdurur; Git komutları için ayrı
-Terminal sekmesi kullanabilirsiniz.
-
-CORS yalnızca `http://localhost:5173` ve `http://127.0.0.1:5173` adreslerine açıktır.
-Frontend'e bağlantı veya kaynak kod değişikliği eklenmemiştir.
+Sağlık cevabı `{"status":"ok","database":"ok"}` biçimindedir. `SELECT 1`
+başarısızsa HTTP 503 döner. `GEOJSON_CORS_ORIGINS` üzerinden izin verilen
+Vite adreslerini ayarlayın.
 
 ## SQLite ve yapılandırma
 
@@ -60,14 +50,10 @@ kaldırmaz. Uygulama başlangıcında `create_all()` veya otomatik migration ça
 
 ## Alembic
 
-`backend/` içinden:
-
-```bash
-python -m alembic current
-python -m alembic heads
-python -m alembic upgrade head
-python -m alembic check
-```
+Proje kökünden, işletim rehberindeki mutlak deneme DB yolu ayarlandıktan sonra
+`bash scripts/run-backend.sh migrate` çalıştırın. `current`, `heads` ve
+`check` komutlarını `backend/` dizininden doğrulanmış Python ile çalıştırın.
+[Migration komutu](../docs/RUNBOOK.md#üç-terminalle-başlatma)
 
 İlk revision `0001_data_models` altı uygulama tablosunu oluşturur. İkinci revision
 `0002_import_jobs`, jobs tablosunu ve datasets.metadata_json alanını ekler. Metadata
@@ -552,35 +538,15 @@ HTTP UploadFile → UUID adlı geçici dosya → SQLite jobs: queued
 
 ### Başlatma ve durdurma
 
-Backend dizininde sanal ortamı etkinleştirip bağımlılıkları güncelleyin:
+API ve worker için ortak mutlak `GEOJSON_DATABASE_PATH` seçin ve
+işletim rehberindeki ayrı terminal komutlarını kullanın.
+[Üç terminalle başlatma](../docs/RUNBOOK.md#üç-terminalle-başlatma)
 
-```bash
-cd ~/Desktop/GeoJSON-Polygon-Editor/backend
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
-python -m alembic upgrade head
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-İkinci Terminal sekmesinde:
-
-```bash
-cd ~/Desktop/GeoJSON-Polygon-Editor/backend
-source .venv/bin/activate
-python -m app.workers.import_worker
-```
-
-Her iki süreç kendi Terminal'inde `Control + C` ile durdurulur. Worker SIGTERM'i de
-destekler. Kontrollü kapanışta çalışan alt süreç durdurulur, iş failed/cancelled
-olarak kaydedilir ve staging kayıtları temizlenir. Kuyrukta bekleyen işler diskte
-kalır. Tek işi işleyip çıkmak için:
-
-```bash
-python -m app.workers.import_worker --once
-```
-
-`--once` bir bakım/claim turu yapar; henüz süresi dolmamış kayıp worker lease'inin
-bitmesini beklemez. Normal worker döngüsü bunu her saniye yeniden kontrol eder.
+Her süreci kendi terminalinde Ctrl+C ile durdurun. Worker SIGTERM'i destekler.
+Kontrollü kapanış aktif alt süreci durdurur ve staging kayıtlarını temizler.
+Kuyrukta bekleyen işler diskte kalır. Proje kökünden tek bakım ve iş alma turu
+için `bash scripts/run-backend.sh worker --once` kullanılabilir. Süresi
+dolmamış kayıp worker lease'ini beklemek için sürekli worker döngüsü gerekir.
 
 ### API ve yükleme sırasında iptal
 
@@ -780,9 +746,9 @@ Kullanılmayan kategoriler dahil katalog ve yabancı kök metadata export edilir
 
 `0002_import_jobs`, `0001_data_models` dosyasını değiştirmez. Mevcut dataset'lere
 boş metadata varsayılanı eklenir. Migration öncesi geliştirme DB'si SQLite backup
-API'siyle yedeklenmelidir. Downgrade için SQLite 3.35+ native DROP COLUMN gerekir;
-test edilen macOS ortamında SQLite 3.49.1 kullanılır. Uygulama otomatik migration
-yapmaz; `python -m alembic upgrade head` çalıştırılmalıdır.
+API'siyle yedeklenmelidir. Downgrade için SQLite 3.35+ native DROP COLUMN gerekir.
+Güncel doğrulanmış çalışma ortamı SQLite 3.53.1 kullanır. Migration ayrı bir
+işlemdir ve proje kökünden `bash scripts/run-backend.sh migrate` ile çalıştırılır.
 
 Tamamen geçici DB/dosyalar üzerinde gerçek loopback HTTP ölçümü:
 

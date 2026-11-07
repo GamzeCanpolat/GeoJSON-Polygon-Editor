@@ -1,3 +1,4 @@
+import { backendPython } from './backendRuntime';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -9,7 +10,7 @@ import type { GeoFeature } from '../../src/domain/contracts';
 
 it('saves isolated snapshots, reopens without data loss, and enforces project versions against real SQLite',async()=>{
   const temporary=mkdtempSync(join(tmpdir(),'geojson-projects-'));
-  const cwd=resolve('backend'),python=join(cwd,'.venv/bin/python');
+  const cwd=resolve('backend'),python=backendPython();
   const env={...process.env,GEOJSON_DATABASE_PATH:join(temporary,'projects.db')};
   const server=spawn(python,['-u','-c',`
 import socket, uvicorn

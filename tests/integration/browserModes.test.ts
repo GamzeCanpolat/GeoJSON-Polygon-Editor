@@ -1,10 +1,12 @@
+import { backendLauncher, backendPython } from './backendRuntime';
 import { it, expect } from 'vitest';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
+import { utils, write } from 'xlsx';
 
 const pause=(ms=100)=>new Promise(r=>setTimeout(r,ms));
 async function port(){const server=createServer();server.listen(0,'127.0.0.1');await once(server,'listening');const n=(server.address() as {port:number}).port;await new Promise<void>(r=>server.close(()=>r()));return n;}
@@ -12,7 +14,7 @@ async function port(){const server=createServer();server.listen(0,'127.0.0.1');a
 // Explicit opt-in: requires local Chrome and the backend Python environment.
 it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite UI draws to SQLite; browser API/Excel lifecycle and local mode work',async()=>{
   const temporary=mkdtempSync(join(tmpdir(),'geojson-browser-')); const children:ChildProcess[]=[];
-  const backend=resolve('backend'),python=join(backend,'.venv/bin/python'),database=join(temporary,'projects.db');
+  const backend=resolve('backend'),python=backendPython(),database=join(temporary,'projects.db');
   const [apiPort,vitePort,debugPort]=await Promise.all([port(),port(),port()]);
   const env={...process.env,GEOJSON_DATABASE_PATH:database,GEOJSON_CORS_ORIGINS:JSON.stringify([`http://127.0.0.1:${vitePort}`])};
   let logs='';
@@ -20,9 +22,9 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite UI draws to SQLite; browse
   let socket:WebSocket|undefined;
   const wait=async(test:()=>Promise<boolean>)=>{for(let i=0;i<150;i++){try{if(await test())return;}catch{}await pause();}throw new Error('Timed out: '+logs.split('\n').filter(l=>/INFO:|ERROR|error|VITE|vite/.test(l)).slice(-35).join('\n'));};
   try{
-    execFileSync(python,['-m','alembic','upgrade','head'],{cwd:backend,env,stdio:'pipe'});
-    launch(python,['-m','uvicorn','app.main:app','--host','127.0.0.1','--port',String(apiPort)],backend);
-    launch(python,['-m','app.workers.import_worker','--poll-interval','0.05'],backend);
+    execFileSync('bash',[backendLauncher,'migrate'],{cwd:backend,env,stdio:'pipe'});
+    launch('bash',[backendLauncher,'api','--port',String(apiPort)],backend);
+    launch('bash',[backendLauncher,'worker','--poll-interval','0.05'],backend);
     launch(process.execPath,[resolve('node_modules/vite/bin/vite.js'),'--config',resolve('tests/fixtures/project-management.vite.config.ts'),'--host','127.0.0.1','--port',String(vitePort)],resolve('.'),{...env,PROJECT_UI_CACHE_DIR:join(temporary,'api-vite-cache'),VITE_PROJECT_MANAGEMENT:'false',VITE_DATA_SOURCE:'api',VITE_API_BASE_URL:`http://127.0.0.1:${apiPort}`});
     await wait(async()=> (await fetch(`http://127.0.0.1:${apiPort}/api/v1/health`)).ok);
     await wait(async()=> (await fetch(`http://127.0.0.1:${vitePort}`)).ok);
@@ -48,6 +50,30 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite UI draws to SQLite; browse
     for(const [x,y] of points){const px=box.x+box.width*x,py=box.y+box.height*y;await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:px,y:py});await call('Input.dispatchMouseEvent',{type:'mousePressed',x:px,y:py,button:'left',clickCount:1});await call('Input.dispatchMouseEvent',{type:'mouseReleased',x:px,y:py,button:'left',clickCount:1});await pause(100);}
     await wait(async()=>count('features')===1);
     const geometry=execFileSync(python,['-c',`import sqlite3; print(sqlite3.connect(${JSON.stringify(database)}).execute('SELECT geometry_type FROM features').fetchone()[0])`],{env,cwd:backend,encoding:'utf8'}).trim();expect(geometry).toBe('Polygon');
+    const workbook = utils.book_new();
+    utils.book_append_sheet(workbook, utils.aoa_to_sheet([
+      ['Enlem', 'Boylam', 'Name'],
+      [41.125, 29.25, 'Chrome XLSX import'],
+    ]), 'Noktalar');
+    const excelPath = join(temporary, 'noktalar.xlsx');
+    writeFileSync(excelPath, write(workbook, { type: 'buffer', bookType: 'xlsx' }));
+    await evaluate(`document.querySelector('.reference-file-actions [aria-label="İçe aktar"]').click()`);
+    await wait(async()=>await evaluate(`!!document.querySelector('.standard-import-dialog input[type="file"]')`));
+    const { root } = await call('DOM.getDocument');
+    const { nodeId } = await call('DOM.querySelector', {
+      nodeId: root.nodeId,
+      selector: '.standard-import-dialog input[type="file"]',
+    });
+    await call('DOM.setFileInputFiles', { nodeId, files: [excelPath] });
+    await wait(async()=>await evaluate(`document.querySelector('[aria-label="Çalışma sayfası"]')?.value==='Noktalar'
+      && !document.querySelector('.standard-import-dialog button[type="submit"]')?.disabled`));
+    await evaluate(`document.querySelector('.standard-import-dialog button[type="submit"]').click()`);
+    await wait(async()=>await evaluate(`!document.querySelector('.standard-import-dialog') && !document.querySelector('.map-loading')`));
+    const importedPoint = JSON.parse(execFileSync(python, ['-c', `import sqlite3; c=sqlite3.connect(${JSON.stringify(database)}); print(c.execute("SELECT feature_json FROM features WHERE geometry_type = 'Point'").fetchone()[0])`],
+      { env, cwd: backend, encoding: 'utf8' }));
+    expect(importedPoint.properties.Name).toBe('Chrome XLSX import');
+    expect(importedPoint.geometry.coordinates).toEqual([29.25, 41.125]);
+
     // Exercise the actual Vite-selected factory in the browser, under real CORS.
     const result=await evaluate(`(async()=>{
       const {createRepository}=await import('/src/data/createRepository.ts');const repo=createRepository();await repo.createEmpty();
@@ -55,8 +81,9 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite UI draws to SQLite; browse
       const added=await repo.mutate({feature:polygon});const full=await repo.get(added.id);
       await repo.mutate({id:added.id,feature:{...full.feature,properties:{...full.feature.properties,edited:true}}});
       await repo.mutate({id:added.id,feature:null});await repo.mutate({id:added.id,feature:polygon});
-      const viewport=await repo.query({bounds:[28,40,31,43],tolerance:0,limit:20});await repo.addCategory('Unused');
+      const viewport=await repo.query({bounds:[28,40,31,43],tolerance:0,limit:20});await repo.addCategory('Unused');await repo.addCategory('Child','Unused');
       const exported=await repo.export();await repo.open(new File([exported],'roundtrip.geojson'));
+      const roundtripCatalog=await repo.categories();
       const {convertImportSheet}=await import('/src/data/spreadsheetImport.ts');
       const workbook={SheetNames:['Sheet1'],Sheets:{Sheet1:{'!ref':'A1:A2',A1:{t:'s',v:'GeoJSON'},A2:{t:'s',v:JSON.stringify(polygon)}}}};
       const converted=convertImportSheet(workbook,{sheet:'Sheet1',kind:'geojson',geometry:0,latitude:-1,longitude:-1});
@@ -68,9 +95,10 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite UI draws to SQLite; browse
       try{await repo.mutate({id:latest.summary.id,feature:polygon});}catch(e){conflict=e.status===409;}
       let missing=false;try{await repo.get('not-valid');}catch(e){missing=e.status===422;}
       const output=JSON.parse(await (await repo.export()).text());const catalog=await repo.categories();
-      repo.dispose();return {viewport:viewport.matched,output,catalog,cancelled,conflict,missing};
+      repo.dispose();return {viewport:viewport.matched,output,catalog,roundtripCatalog,cancelled,conflict,missing};
     })()`);
     expect(result.conflict).toBe(true);expect(result.missing).toBe(true);expect(result.viewport).toBe(1);expect(result.cancelled).toBe(true);expect(result.output.features[0].id).toBe('outside');expect(result.output.features[0].geometry.coordinates[0][0]).toEqual([29,41,10]);
+    expect(result.roundtripCatalog).toContainEqual({name:'Unused',subcategories:['Child']});
     const before=count('workspaces');await call('Page.reload');await wait(async()=>count('workspaces')>before);expect(count('projects')).toBe(0);expect(count('features')).toBeGreaterThan(0);
     // Real local Worker/IndexedDB path in a separate Vite process.
     const localPort=await port();launch(process.execPath,[resolve('node_modules/vite/bin/vite.js'),'--config',resolve('tests/fixtures/project-management.vite.config.ts'),'--host','127.0.0.1','--port',String(localPort)],resolve('.'),{...env,PROJECT_UI_CACHE_DIR:join(temporary,'local-vite-cache'),VITE_DATA_SOURCE:'local',VITE_PROJECT_MANAGEMENT:'true'});

@@ -1,3 +1,4 @@
+import { backendLauncher, backendPython } from './backendRuntime';
 import { parseJson, stringifyJson } from '../../src/domain/losslessJson';
 import { it, expect } from 'vitest';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
@@ -13,7 +14,7 @@ async function port(){const server=createServer();server.listen(0,'127.0.0.1');a
 // Explicit opt-in: requires local Chrome and the backend Python environment.
 for(const mode of ['local','api']) it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)(`lossless ${mode} UI preserves integers through Worker/table/JSON/export and API project refresh`,async()=>{
   const temporary=mkdtempSync(join(tmpdir(),'geojson-browser-')); const children:ChildProcess[]=[];
-  const backend=resolve('backend'),python=join(backend,'.venv/bin/python'),database=join(temporary,'projects.db');
+  const backend=resolve('backend'),python=backendPython(),database=join(temporary,'projects.db');
   const [apiPort,vitePort,debugPort]=await Promise.all([port(),port(),port()]);
   const env={...process.env,PROJECT_UI_CACHE_DIR:join(temporary,'vite-cache'),GEOJSON_DATABASE_PATH:database,GEOJSON_CORS_ORIGINS:JSON.stringify([`http://127.0.0.1:${vitePort}`])};
   let logs='';
@@ -21,9 +22,9 @@ for(const mode of ['local','api']) it.skipIf(!process.env.RUN_BROWSER_INTEGRATIO
   let socket:WebSocket|undefined;
   const wait=async(test:()=>Promise<boolean>)=>{for(let i=0;i<150;i++){try{if(await test())return;}catch{}await pause();}throw new Error('Timed out: '+logs.split('\n').filter(l=>/INFO:|ERROR|error|VITE|vite/.test(l)).slice(-35).join('\n'));};
   try{
-    execFileSync(python,['-m','alembic','upgrade','head'],{cwd:backend,env,stdio:'pipe'});
-    launch(python,['-m','uvicorn','app.main:app','--host','127.0.0.1','--port',String(apiPort)],backend);
-    launch(python,['-m','app.workers.import_worker','--poll-interval','0.05'],backend);
+    execFileSync('bash',[backendLauncher,'migrate'],{cwd:backend,env,stdio:'pipe'});
+    launch('bash',[backendLauncher,'api','--port',String(apiPort)],backend);
+    launch('bash',[backendLauncher,'worker','--poll-interval','0.05'],backend);
     launch(process.execPath,[resolve('node_modules/vite/bin/vite.js'),'--config',resolve('tests/fixtures/project-management.vite.config.ts'),'--host','127.0.0.1','--port',String(vitePort)],resolve('.'),{...env,VITE_PROJECT_MANAGEMENT:'true',VITE_DATA_SOURCE:mode,VITE_API_BASE_URL:`http://127.0.0.1:${apiPort}`});
     await wait(async()=> (await fetch(`http://127.0.0.1:${apiPort}/api/v1/health`)).ok);
     await wait(async()=> (await fetch(`http://127.0.0.1:${vitePort}`)).ok);
