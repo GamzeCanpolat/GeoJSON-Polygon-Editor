@@ -1,0 +1,22 @@
+.project-management{color:var(--ink);font:inherit}.project-management>span{font-size:12px;color:var(--muted)}
+.project-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.project-management [role=alert]{color:var(--warning,#a32e30)}
+.project-dialog-backdrop{position:fixed;inset:0;background:var(--overlay,rgba(0,0,0,.45));z-index:1500;display:flex;align-items:center;justify-content:center;padding:20px}
+.project-dialog{width:min(680px,100%);max-height:85vh;overflow:auto;padding:24px;border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--ink);box-shadow:var(--shadow,0 16px 50px #0003)}
+.project-dialog header{display:flex;justify-content:space-between;align-items:center;gap:20px}.project-dialog h2{font-size:20px}.project-dialog form{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:18px 0}
+.project-dialog label{display:grid;gap:8px}.project-dialog input{padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;max-width:100%}
+.project-list{padding:0;list-style:none}.project-list li{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 0;border-bottom:1px solid var(--line)}
+.project-list small{display:block;color:var(--muted);margin-top:6px}.project-management [role=status]{color:var(--accent-text,var(--green))}
+.project-management>[role=alert],.project-management>[role=status]{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:1601;max-width:min(620px,90vw);padding:12px 18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+.project-list strong{overflow-wrap:anywhere}
+.topbar>.project-management{display:flex;align-items:center;gap:10px;min-width:0;flex-shrink:0}
+.topbar>.project-management>span{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-mobile-menu{display:none;position:relative}.project-mobile-menu summary{cursor:pointer;padding:8px 12px;border:1px solid var(--line);border-radius:8px;list-style:none}
+/* The header stays dark in both themes; match its secondary button text. */
+.geojson-workspace .topbar .project-mobile-menu summary{color:#dbe9ec}
+.project-mobile-menu>div{position:absolute;top:100%;right:0;min-width:190px;padding:12px;z-index:1000;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+.geojson-workspace .topbar .project-mobile-menu>div .button{width:100%;justify-content:flex-start;padding:0 10px}
+.geojson-workspace .topbar .project-dialog .button{width:auto;padding:0 10px}
+.geojson-workspace .topbar .project-mobile-menu>div .button.secondary,
+.geojson-workspace .topbar .project-dialog .button.secondary{color:var(--ink);border-color:var(--line)}
+@media(max-width:1200px){.topbar>.project-management>.project-toolbar-actions{display:none}.project-mobile-menu{display:block}.topbar>.project-management>span{display:none}}
+@media(max-width:680px){.topbar>.project-management{margin-left:auto}.project-mobile-menu summary{font-size:11px;padding:7px}.project-mobile-menu>div{left:0;right:auto}.project-dialog{padding:16px}.project-dialog header{gap:8px}}

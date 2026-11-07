@@ -1,3 +1,4 @@
+import { stringifyJson } from '../domain/losslessJson';
 import { useEffect,useState } from 'react';
 import { Crosshair,Eye,EyeOff,Search,Trash2,Upload,X } from 'lucide-react';
 import type { FeaturePage,FeatureRecord,GeoJsonRepository } from '../domain/contracts';
@@ -8,7 +9,7 @@ export function FeatureList({repository,page,selected,busy,hidden,search,onSearc
   useEffect(()=>{
     let active=true;
     if(!field){setLabels({});return;}
-    void(async()=>{const next:Record<string,string>={},fields=new Set<string>();for(const item of page.items){try{const record=await repository.get(item.id);if(!active)return;Object.keys(record.feature.properties??{}).forEach(key=>fields.add(key));const value=record.feature.properties?.[field];next[item.id]=value===null||value===undefined?'':typeof value==='object'?JSON.stringify(value):String(value);}catch{ /* a new file may have replaced the previous page */ }}if(active){setLabels(next);setExtraFields([...fields]);}})();
+    void(async()=>{const next:Record<string,string>={},fields=new Set<string>();for(const item of page.items){try{const record=await repository.get(item.id);if(!active)return;Object.keys(record.feature.properties??{}).forEach(key=>fields.add(key));const value=record.feature.properties?.[field];next[item.id]=value===null||value===undefined?'':typeof value==='object'?stringifyJson(value):String(value);}catch{ /* a new file may have replaced the previous page */ }}if(active){setLabels(next);setExtraFields([...fields]);}})();
     return()=>{active=false;};
   },[repository,page,field]);
   const fields=[...new Set(['name','ad','isim','title','ana_kategori','alt_kategori',...Object.keys(selected?.feature.properties??{}),...extraFields])];

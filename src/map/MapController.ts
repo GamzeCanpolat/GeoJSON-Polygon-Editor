@@ -74,6 +74,7 @@ export class MapController {
   private translate: Translate;
   private snap: Snap;
   private selected: FeatureRecord | null = null;
+  private pendingEdit = false;
   private mode: EditorMode = 'select';
   private enabled = true;
   private snapping = false;
@@ -120,18 +121,24 @@ export class MapController {
     });
     this.map.on('moveend', () => this.refresh());
     const edited = () => {
+      this.pendingEdit = false;
       const geometry = this.selectedFeatures.item(0)?.getGeometry();
       if (!geometry || !this.selected) return;
       this.callbacks.update(writeEditedFeature(this.selected, geometry));
     };
     this.modify.on('modifyend', edited);
     this.translate.on('translateend', edited);
+    this.modify.on('modifystart', () => { this.pendingEdit = true; });
+    this.translate.on('translatestart', () => { this.pendingEdit = true; });
     this.setBasemap('osm');
   }
   private createDraw(kind: keyof typeof drawModes) {
     const interaction = new Draw({ type: drawModes[kind], stopClick: true, wrapX: false,
       geometryFunction: kind === 'rectangle' ? createBox() : kind === 'circle' ? createRegularPolygon(64) : undefined });
+    interaction.on('drawstart', () => { this.pendingEdit = true; });
+    interaction.on('drawabort', () => { this.pendingEdit = false; });
     interaction.on('drawend', (event) => {
+      this.pendingEdit = false;
       const feature = this.format.writeFeatureObject(event.feature, { featureProjection: 'EPSG:3857', dataProjection: 'EPSG:4326' }) as GeoFeature;
       feature.properties = {};
       this.callbacks.create(feature);
@@ -187,6 +194,7 @@ export class MapController {
   }
   setSnap(value: boolean) { this.snapping = value; this.setEnabled(this.enabled); }
   abortDrawing() { this.draw.abortDrawing(); }
+  hasPendingEdits() { return this.pendingEdit; }
   removeLastPoint() { this.draw.removeLastPoint(); }
   finishDrawing() { this.draw.finishDrawing(); }
   showSelected(record: FeatureRecord | null) {
@@ -233,7 +241,7 @@ export class MapController {
       });
       this.previewSource.clear(true); this.previewSource.addFeatures(features);
       this.callbacks.viewport({ shown: features.length, matched: result.matched, limited: result.limited });
-    } catch (error) { if (!this.disposed) this.callbacks.error(error instanceof Error ? error.message : 'Harita verisi alınamadı.'); }
+    } catch (error) { if (!this.disposed && version === this.requestVersion) this.callbacks.error(error instanceof Error ? error.message : 'Harita verisi alınamadı.'); }
     finally { this.querying = false; if (this.queryAgain) { this.queryAgain = false; void this.loadViewport(); } }
   }
   dispose() { this.disposed = true; clearTimeout(this.timer); this.map.setTarget(undefined); this.map.dispose(); Object.values(this.basemapSources).forEach((source) => source.dispose()); }

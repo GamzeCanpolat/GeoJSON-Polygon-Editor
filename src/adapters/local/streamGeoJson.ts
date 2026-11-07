@@ -1,4 +1,5 @@
-import { JSONParser, TokenType } from '@streamparser/json';
+import { TokenType } from '@streamparser/json';
+import { LosslessJsonStream } from './losslessStream';
 import type { GeoFeature, ImportProgress } from '../../domain/contracts';
 import { validateFeature } from './geometry';
 
@@ -12,7 +13,7 @@ export async function streamGeoJson(
 ) {
   let batch: GeoFeature[] = [];
   let count = 0, bytesRead = 0, root: unknown;
-  const parser = new JSONParser({ paths: ['$.features.*', '$'], keepStack: false, stringBufferSize: 65536 });
+  const parser = new LosslessJsonStream({ paths: ['$.features.*', '$'], keepStack: false, stringBufferSize: 65536 });
   let previousString: string | undefined;
   parser.onToken = ({ token, value }) => {
     // This parser constructs ordinary objects. Reject the special prototype setter

@@ -1,7 +1,9 @@
+import { parseJson, stringifyJson } from '../domain/losslessJson';
 import { useEffect, useMemo, useState } from 'react';
 import { Braces, Check, ChevronRight, Crosshair, FolderTree, Pencil, Pentagon, Plus, X } from 'lucide-react';
 import type { CategoryGroup, FeatureRecord, GeoFeature } from '../domain/contracts';
 import { assignCategories, categoryKey, featureCategories } from '../domain/categories';
+import { validateFeature } from '../domain/geoJsonValidation';
 
 interface Props { record: FeatureRecord | null; busy: boolean; area: number; catalog: CategoryGroup[]; onManageCategories(): void; onApply(feature: GeoFeature): Promise<boolean>; onFocus(): void; onClose(): void; onEdit(): void }
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
@@ -12,16 +14,14 @@ export function Inspector({ record, busy, area, catalog, onManageCategories, onA
   const [error, setError] = useState('');
   const [changed, setChanged] = useState(false);
   useEffect(() => {
-    setDraft(JSON.stringify(record?.feature.properties ?? {}, null, 2));
-    setJson(JSON.stringify(record?.feature ?? {}, null, 2)); setError(''); setChanged(false);
+    setDraft(stringifyJson(record?.feature.properties ?? {}, 2));
+    setJson(stringifyJson(record?.feature ?? {}, 2)); setError(''); setChanged(false);
   }, [record]);
   const parsedEditing = useMemo(() => {
     try {
       if (!record) return { feature: null, error: null };
-      const feature = tab === 'json' ? JSON.parse(json) : { ...record.feature, properties: JSON.parse(draft) };
-      if (typeof feature !== 'object' || feature === null || Array.isArray(feature) || feature.type !== 'Feature') throw new Error('GeoJSON editörü tek bir Feature nesnesi içermeli.');
-      if (feature.properties !== null && (typeof feature.properties !== 'object' || Array.isArray(feature.properties))) throw new Error('properties bir nesne veya null olmalı.');
-      return { feature: feature as GeoFeature, error: null };
+      const feature = validateFeature(tab === 'json' ? parseJson(json) : { ...record.feature, properties: parseJson(draft) });
+      return { feature, error: null };
     } catch (error) { return { feature: null, error: error as Error }; }
   }, [record, tab, json, draft]);
   const editingFeature = (): GeoFeature => {
@@ -29,7 +29,7 @@ export function Inspector({ record, busy, area, catalog, onManageCategories, onA
     return parsedEditing.feature!;
   };
   const setEditingFeature = (feature: GeoFeature) => {
-    setDraft(JSON.stringify(feature.properties, null, 2)); setJson(JSON.stringify(feature, null, 2));
+    setDraft(stringifyJson(feature.properties, 2)); setJson(stringifyJson(feature, 2));
   };
   const changeTab = (next: typeof tab) => {
     try { if (record) setEditingFeature(editingFeature()); setTab(next); setError(''); }

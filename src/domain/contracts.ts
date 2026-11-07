@@ -1,6 +1,7 @@
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 
-export type GeoFeature = Feature<Geometry | null, GeoJsonProperties>;
+/** bigint represents an exact external JSON integer internally, never a quoted ID. */
+export type GeoFeature = Omit<Feature<Geometry | null, GeoJsonProperties>, 'id'> & { id?: string | number | bigint };
 export type Bounds = [number, number, number, number];
 export interface CategoryGroup { name: string; subcategories: string[] }
 export interface CategoryMutationResult { catalog: CategoryGroup[]; dataset: DatasetSummary }
