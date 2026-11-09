@@ -14,7 +14,8 @@ test sonuçları ve teslim durumu Aşama 10C raporundadır.
 - Point, LineString ve Polygon çizimi; Polygon/MultiPolygon köşe düzenleme,
   seçim, taşıma, silme ve undo/redo. MultiPolygon dosya veya JSON üzerinden açılır;
   ayrı bir MultiPolygon çizim aracı yoktur.
-- GeoJSON import/export, JSON editörü, sayfalı tablo ve Feature properties düzenleme.
+- GeoJSON içe aktarma, GeoJSON/Excel/CSV dışa aktarma, JSON editörü ve sayfalı tablo.
+- Seçili Polygon/MultiPolygon için alan ve çevre, LineString/MultiLineString için uzunluk.
 - Excel (.xls/.xlsx) koordinat, GeoJSON, WKT ve encoded polyline sütunu dönüşümü.
 - Ana/alt kategori kataloğu, kullanılmayan kategori tanımları, koyu/aydınlık tema.
 - İki veri modu: tarayıcı Worker + IndexedDB (**local**, varsayılan) veya
@@ -36,6 +37,20 @@ Node.js 22.12+ veya 24 LTS ile proje kökünde `npm ci` çalıştırın.
 Local mod için bu kurulum yeterlidir. API modu için bağımsız Python
 ortamını kurun ve `bash scripts/run-backend.sh python-path` ile doğrulayın.
 [Bağımsız runtime kurulumu](docs/RUNBOOK.md#bağımsız-python-ortamı-kurulumu)
+
+### Mac’te Finder’dan başlatma
+
+İlk kurulumda Terminal’de proje klasöründen `npm ci` çalıştırın. Ardından
+Finder’da **GeoJSON Editor.command** dosyasına çift tıklayın. Dosya çalıştırma
+iznini kaybettiyse proje klasöründe `chmod +x 'GeoJSON Editor.command'` çalıştırın.
+macOS açmayı engellerse dosyanın bu projeden geldiğini doğrulayıp Finder’da
+sağ tık → **Aç** seçeneğini kullanın.
+
+Başlatıcı Local modda sunucu hazır olunca tarayıcıda
+[127.0.0.1:5173](http://127.0.0.1:5173) adresini açar. Bu port kullanımdaysa
+uyarı gösterir. Uygulamayı durdurmak için başlatıcının Terminal penceresinde
+**Ctrl+C** tuşlarına basın. API modu için [RUNBOOK](docs/RUNBOOK.md#üç-terminalle-başlatma)
+komutlarını kullanın.
 
 ## API ve proje ekranları
 
@@ -94,6 +109,29 @@ kayıtları tam ayrıntıyla içerir. Köşe yakalama görünür önizlemeye uyg
 Sokak, uydu, topografya, sade ve boş altlık seçenekleri geometriyi değiştirmez.
 Topografik altlık DEM veya yükseklik analizi sağlamaz. Kaynak ve güncellik
 bilgileri harita üzerindeki sağlayıcı panelindedir.
+
+### Ölçüm ve dışa aktarma
+
+Bir şekil seçip **Özellikler** sekmesini açın. Polygon/MultiPolygon için
+alanı m² ve km², çevreyi m ve km cinsinden görürsünüz. Alan hesabı iç boşlukları
+çıkarır ve çevre hesabı onların sınırlarını da içerir. LineString/MultiLineString
+için parça uzunlukları m ve km olarak toplanır. Ölçümler yaklaşık küresel
+jeodezik değerlerdir, WGS84 boylam/enlem üzerinden hesaplanır ve yüksekliği içermez.
+
+**Dışa aktar** menüsünde GeoJSON, Excel veya CSV seçin. Tablolarda her nesne bir
+satırdır. Sütunlar özgün GeoJSON ID’sini, türü, etiketi, kategorileri, WGS84
+geometri JSON’unu ve öznitelikleri içerir. Öznitelikler ayrı sütunlarda ve
+türleri koruyan bir JSON sütununda bulunur. XLSX hücreleri metin olarak yazılır.
+CSV, UTF-8 BOM ve virgül ayırıcı kullanır. Excel’e CSV aktarırken uzun ID’ler
+ve başında sıfır bulunan değerler için ilgili sütunları **Metin** olarak seçin.
+Formül gibi yorumlanabilecek CSV metinlerine tırnak içinde koruyucu sekme
+eklenir. Kategori kataloğu gibi koleksiyon düzeyindeki meta veriler için
+GeoJSON kullanın.
+
+Tarayıcıdaki dönüşümde XLSX için 32 MiB ve 1.000.000 hücre, CSV için 128 MiB
+ve 5.000.000 hücre sınırı vardır. Her iki tabloda en çok 256 öznitelik
+sütunu açılır. Excel’in hücre başına 32.767 karakter sınırı aşılırsa dosya
+kesilmeden işlem durur. Bu durumda CSV veya GeoJSON seçin.
 
 ### JSON, tablo ve kategoriler
 

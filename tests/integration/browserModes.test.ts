@@ -1,19 +1,19 @@
 import { backendLauncher, backendPython } from './backendRuntime';
 import { it, expect } from 'vitest';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
-import { utils, write } from 'xlsx';
+import { read, utils, write } from 'xlsx';
 import { toLonLat } from 'ol/proj';
 
 const pause=(ms=100)=>new Promise(r=>setTimeout(r,ms));
 async function port(){const server=createServer();server.listen(0,'127.0.0.1');await once(server,'listening');const n=(server.address() as {port:number}).port;await new Promise<void>(r=>server.close(()=>r()));return n;}
 
 // Explicit opt-in: requires local Chrome and the backend Python environment.
-it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite draws and edits polygons, navigates to coordinates, and imports Excel in Local/API modes',async()=>{
+it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite measures and edits polygons, navigates to coordinates, and exports three formats in Local/API modes',async()=>{
   const temporary=mkdtempSync(join(tmpdir(),'geojson-browser-')); const children:ChildProcess[]=[];
   const backend=resolve('backend'),python=backendPython(),database=join(temporary,'projects.db');
   const [apiPort,vitePort,debugPort]=await Promise.all([port(),port(),port()]);
@@ -154,6 +154,46 @@ it.skipIf(!process.env.RUN_BROWSER_INTEGRATION)('Vite draws and edits polygons, 
           && JSON.stringify(features[0].geometry) !== JSON.stringify(before);
       });
     };
+    const verifyMeasurements = async () => {
+      await wait(async () => await evaluate(`[...document.querySelectorAll('[role="tab"]')].some(el => el.textContent === 'Özellikler')`));
+      await evaluate(`[...document.querySelectorAll('[role="tab"]')].find(el => el.textContent === 'Özellikler').click()`);
+      const metrics = () => evaluate(`document.querySelector('.inspector .metrics')?.textContent`);
+      const before = await metrics();
+      expect(before).toMatch(/Alan.*m².*km².*Çevre.*m.*km/);
+      await editPolygon();
+      await wait(async () => (await metrics()) !== before);
+      const edited = await metrics();
+      expect(edited).toMatch(/Alan.*Çevre/);
+      await evaluate(`document.querySelector('[aria-label="Geri al"]').click()`);
+      await wait(async () => (await metrics()) === before);
+      await evaluate(`document.querySelector('[aria-label="Yinele"]').click()`);
+      await wait(async () => (await metrics()) === edited);
+    };
+    const verifyDownloads = async (mode: string) => {
+      const dir = join(temporary, mode + '-downloads');
+      mkdirSync(dir);
+      await call('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir });
+      const source = await exportWorkspace();
+      const geometry = JSON.parse(source).features[0].geometry;
+      for (const [extension, label] of [['geojson', 'GeoJSON (.geojson)'], ['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV (.csv)']]) {
+        await wait(async () => await evaluate(`!document.querySelector('.reference-file-actions [aria-label="Dışa aktar"]').disabled`));
+        await evaluate(`document.querySelector('.reference-file-actions [aria-label="Dışa aktar"]').click()`);
+        await evaluate(`[...document.querySelectorAll('.export-options button')].find(button => button.textContent === ${JSON.stringify(label)}).click()`);
+        let filename: string | undefined;
+        await wait(async () => !!(filename = readdirSync(dir).find(file => file.endsWith('.' + extension))));
+        const bytes = readFileSync(join(dir, filename!));
+        if (extension === 'geojson') {
+          expect(bytes.toString('utf8')).toBe(source);
+        } else {
+          const workbook = read(bytes, { raw: true, FS: ',' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          expect(sheet.A1.v).toBe('Nesne ID');
+          expect(sheet.B2.v).toBe('Polygon');
+          expect(JSON.parse(sheet.F2.v)).toEqual(geometry);
+        }
+      }
+      expect(await exportWorkspace()).toBe(source);
+    };
     await drawPolygon();
     expect(await evaluate(`document.querySelector('.project-management')===null`)).toBe(true);
     await wait(async()=>count('features')===1);
@@ -166,7 +206,8 @@ print(c.execute("SELECT w.active_dataset_id, d.revision, d.count FROM workspaces
     await verifyCoordinateNavigation();
     expect(activeDataset()).toBe(initialDataset);
     expect(count('projects')).toBe(0);
-    await editPolygon();
+    await verifyMeasurements();
+    await verifyDownloads('api');
     const workbook = utils.book_new();
     utils.book_append_sheet(workbook, utils.aoa_to_sheet([
       ['Enlem', 'Boylam', 'Name'],
@@ -225,7 +266,8 @@ print(c.execute("SELECT w.active_dataset_id, d.revision, d.count FROM workspaces
     await drawPolygon();
     await wait(async () => JSON.parse(await exportWorkspace()).features.length === 1);
     await verifyCoordinateNavigation();
-    await editPolygon();
+    await verifyMeasurements();
+    await verifyDownloads('local');
     await evaluate(`document.querySelector('[aria-label="Şekil listesini kapat"]')?.click();
       document.querySelector('[aria-label="Veri panelini kapat"]')?.click()`);
     await call('Emulation.setDeviceMetricsOverride', { width: 320, height: 680, deviceScaleFactor: 2, mobile: true });
@@ -241,6 +283,14 @@ print(c.execute("SELECT w.active_dataset_id, d.revision, d.count FROM workspaces
           && panel.contains(target) && getComputedStyle(panel).backgroundColor !== getComputedStyle(panel).color;
       })()`)).toBe(true);
     }
+    expect(await evaluate(`document.querySelector('.brand-logo').naturalWidth > 0`)).toBe(true);
+    await evaluate(`document.querySelector('.reference-file-actions [aria-label="Dışa aktar"]').click()`);
+    expect(await evaluate(`(() => {
+      const dialog = document.querySelector('[aria-labelledby="export-title"]');
+      const { left, right } = dialog.getBoundingClientRect();
+      return left >= 0 && right <= innerWidth && dialog.querySelectorAll('button').length === 4;
+    })()`)).toBe(true);
+    await evaluate(`document.querySelector('.export-options button:last-child').click()`);
     await call('Emulation.clearDeviceMetricsOverride');
     const local=await evaluate(`(async()=>{const {createRepository}=await import('/src/data/createRepository.ts');const r=createRepository();await r.createEmpty();await r.mutate({feature:{type:'Feature',properties:{},geometry:{type:'Point',coordinates:[29,41,3]}}});const total=(await r.list('',0,20)).total;r.dispose();return total})()`);expect(local).toBe(1);
   }finally{
