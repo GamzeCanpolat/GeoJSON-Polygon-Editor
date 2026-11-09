@@ -9,6 +9,8 @@ import { CategoryManager } from './components/CategoryManager';
 import { ImportDialog } from './components/ImportDialog';
 import { FeatureList } from './components/FeatureList';
 import { ImportReader } from './data/ImportReader';
+import { exportTabularFile } from './data/exportTabularFile';
+import type { ExportFormat } from './data/tabularExport';
 import { BasemapPicker } from './components/BasemapPicker';
 import { createRepository } from './data/createRepository';
 import { PendingEditorEdits } from './data/PendingEditorEdits';
@@ -81,6 +83,7 @@ export function App() {
   const [help, setHelp] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set());
   const [catalog, setCatalog] = useState<CategoryGroup[]>([]);
@@ -93,7 +96,6 @@ export function App() {
   const selectionVersion = useRef(0);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
-  const [area, setArea] = useState(0);
 
   const notify = (kind: Notice['kind'], message: string) => setNotice({ kind, message });
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 6500); return () => clearTimeout(timer); }, [notice]);
@@ -135,7 +137,6 @@ export function App() {
     if (dataset) repository.categories().then((result) => { if (active && version === workspaceVersion.current) setCatalog(result); }).catch((error: Error) => { if (active && version === workspaceVersion.current) notify('error', error.message); });
     return () => { active = false; };
   }, [repository, dataset]);
-  useEffect(() => { const frame = requestAnimationFrame(() => setArea(map.current?.getSelectedArea() ?? 0)); return () => cancelAnimationFrame(frame); }, [selected]);
   useEffect(() => {
     const preventLoss = (event: BeforeUnloadEvent) => { if (dirty || codeDirty || tableEdits.hasChanges() || projectsEnabled && map.current?.hasPendingEdits()) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', preventLoss);
@@ -302,15 +303,19 @@ export function App() {
     } catch (error) { notify('error', (error as Error).message); }
     finally { setBusy(null); operationLock.current = false; }
   };
-  const exportFile = async () => {
+  const exportFile = async (format: ExportFormat = 'geojson') => {
     if (operationLock.current || !dataset || codeDirty) return;
     operationLock.current = true; setBusy('export'); setProgress(null); map.current?.abortDrawing();
     try {
-      const blob = await repository.export(setProgress);
+      const source = await repository.export(setProgress);
+      if (format !== 'geojson') setProgress(null);
+      const blob = format === 'geojson' ? source : await exportTabularFile(source, format, setProgress);
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `${dataset.name.replace(/\.(geojson|json)$/i, '')}-duzenlendi.geojson`;
+      const a = document.createElement('a'); a.href = url; a.download = `${dataset.name.replace(/\.(geojson|json)$/i, '')}-duzenlendi.${format}`;
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-      if (!projectsEnabled) setDirty(false); notify('success', 'GeoJSON indirme işlemi başlatıldı. Özgün koordinat ayrıntısı korundu.');
+      if (!projectsEnabled && format === 'geojson') setDirty(false);
+      const label = { geojson: 'GeoJSON', xlsx: 'Excel', csv: 'CSV' }[format];
+      notify('success', `${label} indirme işlemi başlatıldı.`);
     } catch (error) { notify('error', (error as Error).message); }
     finally { setBusy(null); setProgress(null); operationLock.current = false; }
   };
@@ -319,6 +324,10 @@ export function App() {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       const key = event.key.toLowerCase();
+      if (exportOpen) {
+        if (key === 'escape') setExportOpen(false);
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && key === 'o') { event.preventDefault(); if (!busy && !help && !confirmAction && !categoriesOpen && !importOpen) fileInput.current?.click(); return; }
       if ((event.ctrlKey || event.metaKey) && key === 's') {
         event.preventDefault();
@@ -367,7 +376,7 @@ export function App() {
       </div>
       <input ref={fileInput} className="sr-only" type="file" accept=".geojson,.json,.xls,.xlsx,application/geo+json,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Harita dosyası seç" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) receiveFile(file); }} />
     </header>
-    <div className="workspace-toolbar"><div className="workspace-title"><button className="icon-button" title={leftOpen ? 'Sol paneli kapat' : 'Sol paneli aç'} aria-label={leftOpen ? 'Sol paneli kapat' : 'Sol paneli aç'} onClick={() => setLeftOpen(!leftOpen)}>{leftOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}</button><span>Şekiller</span></div><div className="drawing-toolbar" role="toolbar" aria-label="Harita araçları">{modes.map(({ id, icon: Icon, label, key }) => <button key={id} className={`draw-tool ${mode === id ? 'active' : ''}`} title={`${label} (${key})`} aria-label={label} data-tool={id} aria-pressed={mode === id} disabled={!!busy} onClick={() => changeMode(id)}><Icon size={20} strokeWidth={1.65} /><span className="tool-tooltip">{label}<kbd>{key}</kbd></span></button>)}<span className="toolbar-rule" /><button className={`draw-tool ${snap ? 'toggled' : ''}`} title="Köşelere yakala (görünür şekiller)" aria-label="Köşelere yakala" aria-pressed={snap} disabled={!!busy} onClick={() => setSnap(!snap)}><Magnet size={19} strokeWidth={1.65} /></button><button className="draw-tool delete-tool" title="Seçili şekli sil (Delete)" aria-label="Seçili şekli sil" disabled={!selected || !!busy} onClick={() => void commit(null)}><Trash2 size={18} strokeWidth={1.65} /></button></div><div className="reference-file-actions"><button className="button secondary" aria-label="İçe aktar" disabled={!!busy} onClick={beginImport}><Upload size={14}/><span>İçe aktar</span></button><button className="button secondary" aria-label="Dışa aktar" disabled={!!busy || !dataset || codeDirty || !dataset.count && !catalog.length} onClick={()=>void exportFile()}><Download size={14}/><span>Dışa aktar</span></button></div><div className="history-tools"><button className="icon-button" disabled={!undoStack.length || !!busy || codeDirty} title="Geri al (Ctrl+Z)" aria-label="Geri al" onClick={() => void historyStep('undo')}><Undo2 size={16} /></button><button className="icon-button" disabled={!redoStack.length || !!busy || codeDirty} title="Yinele (Ctrl+Shift+Z)" aria-label="Yinele" onClick={() => void historyStep('redo')}><Redo2 size={16} /></button><span className="tool-divider" /><button className="icon-button" title={rightOpen ? 'Veri panelini kapat' : 'Veri panelini aç'} aria-label={rightOpen ? 'Veri panelini kapat' : 'Veri panelini aç'} onClick={() => { if (rightOpen && (codeDirty || tableEdits.hasChanges())) notify('info','JSON taslağını uygulayın veya güncel veriyi yeniden yükleyin.'); else setRightOpen(!rightOpen); }}>{rightOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}</button></div></div>
+    <div className="workspace-toolbar"><div className="workspace-title"><button className="icon-button" title={leftOpen ? 'Sol paneli kapat' : 'Sol paneli aç'} aria-label={leftOpen ? 'Sol paneli kapat' : 'Sol paneli aç'} onClick={() => setLeftOpen(!leftOpen)}>{leftOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}</button><span>Şekiller</span></div><div className="drawing-toolbar" role="toolbar" aria-label="Harita araçları">{modes.map(({ id, icon: Icon, label, key }) => <button key={id} className={`draw-tool ${mode === id ? 'active' : ''}`} title={`${label} (${key})`} aria-label={label} data-tool={id} aria-pressed={mode === id} disabled={!!busy} onClick={() => changeMode(id)}><Icon size={20} strokeWidth={1.65} /><span className="tool-tooltip">{label}<kbd>{key}</kbd></span></button>)}<span className="toolbar-rule" /><button className={`draw-tool ${snap ? 'toggled' : ''}`} title="Köşelere yakala (görünür şekiller)" aria-label="Köşelere yakala" aria-pressed={snap} disabled={!!busy} onClick={() => setSnap(!snap)}><Magnet size={19} strokeWidth={1.65} /></button><button className="draw-tool delete-tool" title="Seçili şekli sil (Delete)" aria-label="Seçili şekli sil" disabled={!selected || !!busy} onClick={() => void commit(null)}><Trash2 size={18} strokeWidth={1.65} /></button></div><div className="reference-file-actions"><button className="button secondary" aria-label="İçe aktar" disabled={!!busy} onClick={beginImport}><Upload size={14}/><span>İçe aktar</span></button><button className="button secondary" aria-label="Dışa aktar" disabled={!!busy || !dataset || codeDirty || !dataset.count && !catalog.length} onClick={()=>setExportOpen(true)}><Download size={14}/><span>Dışa aktar</span></button></div><div className="history-tools"><button className="icon-button" disabled={!undoStack.length || !!busy || codeDirty} title="Geri al (Ctrl+Z)" aria-label="Geri al" onClick={() => void historyStep('undo')}><Undo2 size={16} /></button><button className="icon-button" disabled={!redoStack.length || !!busy || codeDirty} title="Yinele (Ctrl+Shift+Z)" aria-label="Yinele" onClick={() => void historyStep('redo')}><Redo2 size={16} /></button><span className="tool-divider" /><button className="icon-button" title={rightOpen ? 'Veri panelini kapat' : 'Veri panelini aç'} aria-label={rightOpen ? 'Veri panelini kapat' : 'Veri panelini aç'} onClick={() => { if (rightOpen && (codeDirty || tableEdits.hasChanges())) notify('info','JSON taslağını uygulayın veya güncel veriyi yeniden yükleyin.'); else setRightOpen(!rightOpen); }}>{rightOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}</button></div></div>
     <main className="workspace">
       {leftOpen && <aside className="sidebar reference-sidebar" aria-label="Şekiller">
         <FeatureList key={workspaceKey} repository={repository} page={page} selected={selected} busy={!!busy} hidden={hiddenIds} search={search}
@@ -389,7 +398,7 @@ export function App() {
         {viewport.limited && <div className="performance-banner" role="status"><Layers3 size={15} /><span>Bu alandaki {nf.format(viewport.matched)} şeklin {nf.format(viewport.shown)} tanesi gösteriliyor. Ayrıntı için yakınlaşın.</span></div>}
         {busy === 'init' && <div className="map-loading"><LoaderCircle className="spin" size={23} /><span>Çalışma alanı hazırlanıyor…</span></div>}
       </section>
-      {rightOpen && <DataPanel edits={tableEdits} repository={repository} dataset={dataset} record={selected} busy={!!busy} area={area} catalog={catalog} workspaceKey={workspaceKey}
+      {rightOpen && <DataPanel edits={tableEdits} repository={repository} dataset={dataset} record={selected} busy={!!busy} catalog={catalog} workspaceKey={workspaceKey}
         onReplace={replaceFromCode} onApply={(feature) => commit(feature)} onTableApply={(record,feature) => commit(feature,false,record)} onSelect={(id) => void select(id,true)} onDraftChange={value=>{codeDirtyRef.current=value;setCodeDirty(value);}}
         onManageCategories={() => setCategoriesOpen(true)} onFocus={() => map.current?.fit(selected?.summary.bounds ?? null)} onEdit={() => changeMode('edit')}
         onClose={() => { if(codeDirty||tableEdits.hasChanges()) notify('info','JSON/tablo taslağını uygulayın veya iptal edin.'); else setRightOpen(false); }} />}
@@ -397,8 +406,21 @@ export function App() {
     </main>
     <footer className="statusbar"><div><span className={`status-dot ${dirty ? 'unsaved' : ''}`} /><span>{status}</span></div><div className="footer-coordinates"><Crosshair size={12} />{coordinate}</div><div><span>{nf.format(viewport.shown)} görünür</span><span className="footer-divider" /><span>WGS 84</span><span className="footer-divider" /><span>GeoJSON</span></div></footer>
     {importOpen && <ImportDialog key={importFile?`${importFile.name}-${importFile.size}-${importFile.lastModified}`:'empty'} initialFile={importFile} busy={!!busy} count={dataset?.count??0} dirty={dirty||codeDirty} hasDraft={codeDirty} onImport={open} onClose={()=>{setImportOpen(false);setImportFile(null);}}/>}
+    {exportOpen && <div className="modal-backdrop">
+      <div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="export-title">
+        <div className="modal-icon"><Download size={24} /></div>
+        <h2 id="export-title">Dışa aktarma biçimini seçin</h2>
+        <p>Çalışmadaki tüm nesneler seçtiğiniz biçimde indirilir.</p>
+        <div className="confirm-actions export-options">
+          {([['geojson', 'GeoJSON (.geojson)'], ['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV (.csv)']] as const).map(([format, label]) =>
+            <button key={format} className={`button ${format === 'geojson' ? 'primary' : 'secondary'}`}
+              autoFocus={format === 'geojson'} onClick={() => { setExportOpen(false); void exportFile(format); }}>{label}</button>)}
+          <button className="button secondary" onClick={() => setExportOpen(false)}>Vazgeç</button>
+        </div>
+      </div>
+    </div>}
     {notice && <div className={`toast ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.kind === 'success' ? <Check size={18} /> : notice.kind === 'error' ? <CircleHelp size={18} /> : <ShieldCheck size={18} />}<span>{notice.message}</span><button className="icon-button" onClick={() => setNotice(null)} aria-label="Bildirimi kapat"><X size={15} /></button></div>}
-    {(busy === 'import' || busy === 'export') && <div className="modal-backdrop"><div className="progress-modal" role="dialog" aria-modal="true" aria-labelledby="progress-title"><div className="progress-symbol"><FileJson2 size={31} /><LoaderCircle className="spin" size={20} /></div><span className="eyebrow">{busy === 'import' ? 'DOSYANIZ HAZIRLANIYOR' : 'GEOJSON OLUŞTURULUYOR'}</span><h2 id="progress-title">{busy === 'import' ? 'Yeni alanlar keşfediliyor.' : 'Çalışmanız yola çıkıyor.'}</h2><p>{busy === 'import' ? 'Dosya, haritayı yavaşlatmadan parça parça açılıyor.' : 'Tüm şekiller özgün ayrıntılarıyla dışa aktarılıyor.'}</p><div className="progress-track"><span style={{ width: `${percent}%` }} /></div><div className="progress-details"><strong>%{percent}</strong><span>{nf.format(progress?.featuresRead ?? 0)} şekil {busy === 'import' && progress ? `· ${sizeText(progress.bytesRead)} / ${sizeText(progress.totalBytes)}` : ''}</span></div>{busy === 'import' && <button className="button secondary" onClick={() => abort.current?.abort()}>İptal et</button>}</div></div>}
+    {(busy === 'import' || busy === 'export') && <div className="modal-backdrop"><div className="progress-modal" role="dialog" aria-modal="true" aria-labelledby="progress-title"><div className="progress-symbol"><FileJson2 size={31} /><LoaderCircle className="spin" size={20} /></div><span className="eyebrow">{busy === 'import' ? 'DOSYANIZ HAZIRLANIYOR' : 'DOSYA OLUŞTURULUYOR'}</span><h2 id="progress-title">{busy === 'import' ? 'Yeni alanlar keşfediliyor.' : 'Çalışmanız yola çıkıyor.'}</h2><p>{busy === 'import' ? 'Dosya, haritayı yavaşlatmadan parça parça açılıyor.' : 'Tüm şekiller seçilen biçimde hazırlanıyor.'}</p><div className="progress-track"><span style={{ width: `${percent}%` }} /></div><div className="progress-details"><strong>%{percent}</strong><span>{nf.format(progress?.featuresRead ?? 0)} şekil {busy === 'import' && progress ? `· ${sizeText(progress.bytesRead)} / ${sizeText(progress.totalBytes)}` : ''}</span></div>{busy === 'import' && <button className="button secondary" onClick={() => abort.current?.abort()}>İptal et</button>}</div></div>}
     {dragging && !busy && <div className="drop-overlay"><Upload size={45} strokeWidth={1.3} /><h2>Dosyanızı buraya bırakın</h2><p>.geojson, .json, .xls veya .xlsx</p></div>}
     {categoriesOpen && <CategoryManager catalog={catalog} busy={!!busy} onAdd={addCategory} onClose={() => setCategoriesOpen(false)} />}
     {confirmAction && !confirmSaveName && <div className="modal-backdrop"><div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="replace-title"><div className="modal-icon"><FolderOpen size={24} /></div><h2 id="replace-title">Mevcut çalışma değiştirilsin mi?</h2><p>{projectsEnabled ? 'Kaydedilmemiş değişiklikleriniz var. JSON taslağı veya yarım çizim kaydetmeden devam ederseniz bırakılacak.' : 'Dışa aktarılmamış değişiklikleriniz var. Çalışmayı değiştirmeden önce dosyanızı indirebilirsiniz.'}</p><div className="confirm-actions">{projectsEnabled ? <><button className="button secondary" disabled={!!busy} onClick={()=>setConfirmAction(null)}>İptal</button><button className="button secondary" disabled={!!busy} onClick={()=>{const action=confirmAction;setConfirmAction(null);action();}}>Kaydetmeden Devam Et</button><button className="button primary" disabled={!!busy||codeDirty||!!map.current?.hasPendingEdits()} onClick={()=>void saveBeforeReplace()}>Kaydet</button></> : <><button className="button secondary" onClick={() => setConfirmAction(null)}>Vazgeç</button><button className="button secondary" onClick={() => { setConfirmAction(null); void exportFile(); }}><ArrowDownToLine size={15} />Önce dışa aktar</button><button className="button primary" onClick={() => { const action = confirmAction; setConfirmAction(null); action(); }}>Değiştir</button></>}</div></div></div>}

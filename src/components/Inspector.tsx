@@ -4,10 +4,20 @@ import { Braces, Check, ChevronRight, Crosshair, FolderTree, Pencil, Pentagon, P
 import type { CategoryGroup, FeatureRecord, GeoFeature } from '../domain/contracts';
 import { assignCategories, categoryKey, featureCategories } from '../domain/categories';
 import { validateFeature } from '../domain/geoJsonValidation';
+import { measureGeometry } from '../domain/measurements';
 
-interface Props { record: FeatureRecord | null; busy: boolean; area: number; catalog: CategoryGroup[]; onManageCategories(): void; onApply(feature: GeoFeature): Promise<boolean>; onFocus(): void; onClose(): void; onEdit(): void }
+interface Props { record: FeatureRecord | null; busy: boolean; catalog: CategoryGroup[]; onManageCategories(): void; onApply(feature: GeoFeature): Promise<boolean>; onFocus(): void; onClose(): void; onEdit(): void }
 const nf = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 2 });
-export function Inspector({ record, busy, area, catalog, onManageCategories, onApply, onFocus, onClose, onEdit }: Props) {
+const km = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 6 });
+
+function Metric({ label, value, area = false }: { label: string; value: number; area?: boolean }) {
+  return <div><span>{label}</span><strong>{nf.format(value)} {area ? 'm²' : 'm'}</strong>
+    <span>{km.format(value / (area ? 1e6 : 1000))} {area ? 'km²' : 'km'}</span></div>;
+}
+
+export function Inspector({ record, busy, catalog, onManageCategories, onApply, onFocus, onClose, onEdit }: Props) {
+  const geometry = record?.feature.geometry;
+  const measurement = useMemo(() => measureGeometry(geometry), [geometry]);
   const [tab, setTab] = useState<'properties' | 'json'>('properties');
   const [draft, setDraft] = useState('');
   const [json, setJson] = useState('');
@@ -61,7 +71,14 @@ export function Inspector({ record, busy, area, catalog, onManageCategories, onA
     </div>
     {!record ? <div className="inspector-empty"><div className="empty-geometry"><Pencil size={32} strokeWidth={1.5} /></div><h3>Bir şekil seçin</h3><p>Listeden veya haritadan bir şekil seçerek ayrıntılarını görün ve düzenlemeye başlayın.</p><div className="tiny-instruction"><span>01</span> Seçin <ChevronRight size={13} /><span>02</span> Düzenleyin</div></div> : <>
       <div className="selected-heading"><span className="eyebrow">SEÇİLİ ŞEKİL</span><h2>{record.summary.label}</h2><div className="type-chip"><Pentagon size={12} />{record.summary.geometryType}</div></div>
-      <div className="metrics"><div><span>Köşe sayısı</span><strong>{nf.format(record.summary.vertices)}</strong></div><div><span>Alan</span><strong>{area > 1e6 ? `${nf.format(area / 1e6)} km²` : `${nf.format(area)} m²`}</strong></div></div>
+      <div className="metrics" aria-label="Seçili şeklin ölçüleri">
+        <div><span>Köşe sayısı</span><strong>{nf.format(record.summary.vertices)}</strong></div>
+        {measurement?.kind === 'polygon' && <>
+          <Metric label="Alan" value={measurement.area} area />
+          <Metric label="Çevre" value={measurement.perimeter} />
+        </>}
+        {measurement?.kind === 'line' && <Metric label="Uzunluk" value={measurement.length} />}
+      </div>
       <div className="inspector-actions"><button className="button secondary" disabled={busy || !record.feature.geometry} onClick={onEdit}><Pencil size={14} />Köşeleri düzenle</button><button className="icon-button bordered" disabled={!record.summary.bounds} onClick={onFocus} title="Seçime yakınlaş" aria-label="Seçime yakınlaş"><Crosshair size={16} /></button></div>
       <section className="category-assignment" aria-label="Şekil kategorileri">
         <div className="category-assignment-heading"><span><FolderTree size={14} />KATEGORİLER</span><button className="icon-button" onClick={onManageCategories} disabled={busy} title="Kategori ekle veya yönet" aria-label="Kategori ekle veya yönet"><Plus size={16} /></button></div>

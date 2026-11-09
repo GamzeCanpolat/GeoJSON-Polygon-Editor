@@ -19,7 +19,6 @@ import Collection from 'ol/Collection';
 import { defaults as controls, ScaleLine } from 'ol/control';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
 import { Fill, Stroke, Style, Circle as CircleStyle } from 'ol/style';
-import { getArea } from 'ol/sphere';
 import type { Bounds, FeatureRecord, GeoFeature, GeoJsonRepository } from '../domain/contracts';
 import { MAX_MERCATOR_LATITUDE, type GeographicCoordinate } from '../domain/coordinateNavigation';
 import { readEditableFeature, writeEditedFeature } from './featureGeometry';
@@ -216,11 +215,6 @@ export class MapController {
       this.selectedSource.addFeature(feature); this.selectedFeatures.push(feature);
     }
     this.previewLayer.changed();
-  }
-  getSelectedArea() {
-    const geometry = this.selectedFeatures.item(0)?.getGeometry();
-    if (!geometry || !['Polygon', 'MultiPolygon'].includes(geometry.getType())) return 0;
-    return getArea(geometry);
   }
   fit(bounds: Bounds | null) {
     if (!bounds) return;
