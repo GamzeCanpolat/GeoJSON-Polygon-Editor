@@ -90,6 +90,34 @@ alın. Her çalıştırmada temiz bir deneme isterseniz birinci terminalde
 ve çıkan yolun sonuna `/projects.db` ekleyip iki terminalde de kullanın.
 [Yedekleme ve geri yükleme](#yedekleme-ve-geri-yükleme)
 
+## macOS günlük Local kullanım
+
+Önerilen proje konumu `~/Developer/GeoJSON-Polygon-Editor` gibi iCloud dışında
+bir klasördür. İlk kurulumda proje kökünde `npm ci` çalıştırın. Vite ve TypeScript
+için geliştirme bağımlılıklarını da kurun.
+
+Finder’da **GeoJSON Editor.command** dosyasına çift tıklayın. İlk açılışta derleme
+yapılır, sonraki açılışlarda hash kontrolünden geçen çıktı kullanılır. Başlatıcı,
+eksik veya değiştirilmiş derleme dosyalarını yeniden üretir. Hazır olunca tarayıcıda
+http://127.0.0.1:5173 açılır. Kapatmak için Terminal’de Ctrl+C kullanın.
+
+Masaüstüne kısayol için dosyanın sağ tık menüsünden **Arma Yap / Takma Ad Yarat**
+seçip oklu simgeyi masaüstüne sürükleyin. Projeyi taşımadan önce sunucuyu kapatın
+ve taşıma sonrasında armanın hedefini kontrol edin.
+
+Bu başlatıcı derlemeyi `node_modules/.cache/geojson-local/dist` içinde tutar.
+Normal API/Local build için kullanılan kök `dist` klasörü ayrı kalır.
+Geliştirme optimizer önbelleği günlük başlatıcının çalışmasına katılmaz.
+`npm run dev` kod geliştirme içindir ve kendi Vite optimizer önbelleğini kullanır.
+
+Geliştirme sunucusunda eksik `.vite/deps` hatası varsa sunucuyu kapatıp doğru
+klasörde bağımlılıkları kontrol edin. Gerekiyorsa `npm ci` ve ardından
+`npm run dev -- --force` ile yeniden başlatın. Kullanıcının IndexedDB veya site
+verilerini temizlemeyin. Dolu porttaki sunucuyu kendi Terminal’inden kapatın.
+
+Güvenlik uyarıları, izinler, kurulum komutları ve testler için
+[macOS Local başlatıcı rehberine](../LOCAL_LAUNCHER.md) bakın.
+
 ## Local ve API modu
 
 ~~~bash

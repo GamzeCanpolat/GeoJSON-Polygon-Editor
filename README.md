@@ -40,17 +40,24 @@ ortamını kurun ve `bash scripts/run-backend.sh python-path` ile doğrulayın.
 
 ### Mac’te Finder’dan başlatma
 
-İlk kurulumda Terminal’de proje klasöründen `npm ci` çalıştırın. Ardından
-Finder’da **GeoJSON Editor.command** dosyasına çift tıklayın. Dosya çalıştırma
-iznini kaybettiyse proje klasöründe `chmod +x 'GeoJSON Editor.command'` çalıştırın.
-macOS açmayı engellerse dosyanın bu projeden geldiğini doğrulayıp Finder’da
-sağ tık → **Aç** seçeneğini kullanın.
+Projeyi iCloud Desktop/Documents dışında, örneğin `~/Developer` altında tutun.
+İlk kurulumda proje kökünde `npm ci` çalıştırın. Geliştirme bağımlılıkları da gereklidir.
+Ardından Finder’da **GeoJSON Editor.command** dosyasına çift tıklayın.
 
-Başlatıcı Local modda sunucu hazır olunca tarayıcıda
-[127.0.0.1:5173](http://127.0.0.1:5173) adresini açar. Bu port kullanımdaysa
-uyarı gösterir. Uygulamayı durdurmak için başlatıcının Terminal penceresinde
-**Ctrl+C** tuşlarına basın. API modu için [RUNBOOK](docs/RUNBOOK.md#üç-terminalle-başlatma)
-komutlarını kullanın.
+İlk açılışta TypeScript kontrolü ve Local production derlemesi yapılır. Sonraki
+açılışlarda dosyaların hash değerleri doğrulanır ve sağlamsa hazır derleme kullanılır.
+Eksik veya değiştirilmiş çıktılar yeniden oluşturulur. Başlatıcı
+[127.0.0.1:5173](http://127.0.0.1:5173) adresini açar. Port doluysa uyarı gösterir.
+Kapatmak için açılan Terminal penceresinde **Ctrl+C** kullanın.
+
+Masaüstü kısayolu için başlatıcıya sağ tıklayıp **Arma Yap / Takma Ad Yarat**
+seçin ve oluşan oklu simgeyi masaüstüne taşıyın. Kurulum, güvenlik uyarıları ve
+hata giderme adımları [macOS başlatıcı rehberinde](LOCAL_LAUNCHER.md) açıklanır.
+
+Günlük Local başlatıcı derlenmiş dosyaları sunar. Kod geliştirme için
+`npm run dev`, API modu için [RUNBOOK](docs/RUNBOOK.md#üç-terminalle-başlatma)
+komutlarını kullanın. Local derleme `node_modules/.cache/geojson-local/dist`
+altında, normal Local/API build çıktısı proje kökündeki `dist` altında tutulur.
 
 ## API ve proje ekranları
 
